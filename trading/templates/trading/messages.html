@@ -1,0 +1,59 @@
+{% extends "telegram_monitor/base.html" %}
+{% block title %}{{ scope.label }} · Messages{% endblock %}
+{% block content %}
+<div class="mb-4">
+    <h2 class="text-lg font-semibold">{{ scope.label }} <span class="text-slate-400 font-normal">· Messages</span>
+        <span class="text-sm font-normal text-slate-400">(<span data-live="message-count">{{ page.paginator.count }}</span> received, newest first)</span></h2>
+    {% if page.number == 1 %}
+    <p class="text-xs text-slate-400">Live: new messages appear here by themselves.</p>
+    {% else %}
+    <p class="text-xs text-slate-400">Live updates are on the first page; this older page stays still while you read.</p>
+    {% endif %}
+</div>
+
+<section class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+    <table class="w-full table-fixed text-xs xl:text-sm [overflow-wrap:anywhere]">
+        <thead class="text-slate-400 text-[10px] uppercase tracking-wide">
+            <tr>
+                <th class="px-3 py-2 text-left font-medium w-[15%]">Source</th>
+                <th class="px-3 py-2 text-left font-medium w-[13%]">Timestamp</th>
+                <th class="px-3 py-2 text-left font-medium w-[46%]">Message</th>
+                <th class="px-3 py-2 text-left font-medium w-[10%]">Status</th>
+                <th class="px-3 py-2 text-left font-medium w-[16%]">Reason</th>
+            </tr>
+        </thead>
+        <tbody id="message-rows" class="divide-y divide-slate-100">
+        {% for row in rows %}
+            <tr class="align-top" data-id="{{ row.message.id }}">
+                <td class="px-3 py-2.5 font-medium">{{ row.message.source.name|default:row.message.source.telegram_id }}</td>
+                <td class="px-3 py-2.5"><time data-iso="{{ row.message.telegram_date.isoformat }}">{{ row.message.telegram_date|date:"M d, H:i:s" }} UTC</time></td>
+                <td class="px-3 py-2.5 whitespace-pre-wrap w-1/2">{{ row.message.message_text }}</td>
+                <td class="px-3 py-2.5">
+                    <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-medium
+                        {% if row.status == 'Signal' %}text-emerald-700 bg-emerald-50{% elif row.status == 'Processing' %}text-amber-700 bg-amber-50{% else %}text-slate-600 bg-slate-100{% endif %}">{{ row.status }}</span>
+                </td>
+                <td class="px-3 py-2.5 {% if row.is_signal %}text-emerald-700{% else %}text-slate-600{% endif %}">{{ row.reason }}</td>
+            </tr>
+        {% empty %}
+            <tr data-empty><td colspan="5" class="px-3 py-10 text-center text-slate-400">No messages received yet.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</section>
+
+<div id="pager">
+{% if page.has_other_pages %}
+<div class="flex items-center justify-between mt-4 text-sm">
+    <span class="text-slate-500">Page {{ page.number }} of {{ page.paginator.num_pages }}</span>
+    <div class="flex gap-2">
+        {% if page.has_previous %}<a href="?page={{ page.previous_page_number }}" class="rounded-lg border border-slate-300 px-3 py-1.5 hover:bg-slate-100">&larr; Newer</a>{% endif %}
+        {% if page.has_next %}<a href="?page={{ page.next_page_number }}" class="rounded-lg border border-slate-300 px-3 py-1.5 hover:bg-slate-100">Older &rarr;</a>{% endif %}
+    </div>
+</div>
+{% endif %}
+</div>
+
+<div id="live-config" class="hidden" data-page="{{ page.number }}"></div>
+<script src="/static/trading/js/live.js?v=1"></script>
+<script src="/static/trading/js/messages.js?v=1"></script>
+{% endblock %}

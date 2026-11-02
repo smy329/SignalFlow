@@ -1,0 +1,81 @@
+{% extends "telegram_monitor/base.html" %}
+{% block title %}Manual Trade{% endblock %}
+{% block content %}
+<div class="max-w-3xl">
+    <h2 class="text-lg font-semibold mb-4">Manual Trade</h2>
+
+    <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+        <label for="signal-text" class="block text-sm font-medium text-slate-700 mb-1">Signal</label>
+        <textarea id="signal-text" rows="12" autofocus spellcheck="false" autocomplete="off"
+                  placeholder="Paste the signal here. The direction (Long / Short), entries, targets and stop-loss are read from the text."
+                  class="w-full font-mono text-sm rounded-lg border border-slate-300 p-3 focus:outline-none focus:ring-2 focus:ring-slate-400"></textarea>
+        <p id="text-error" class="text-sm text-red-600 mt-1 hidden"></p>
+
+        {# Shown right after a paste when the signal has no stop-loss: one click sets the SL 1:1 with that TP and places the trade #}
+        <div id="sl-panel" class="hidden mt-3 rounded-lg border border-slate-300 bg-slate-50 p-3" tabindex="-1" aria-live="polite">
+            <p class="text-sm font-medium text-slate-700">No stop-loss in this signal. <span id="sl-title"></span></p>
+            <p class="text-xs text-slate-500 mt-0.5">Each button puts the stop-loss as far below the entry (above it, for a short) as that target is above it. <span id="sl-entry"></span> Press the number key, or click, to place the <strong id="sl-mode-label"></strong> trade now.</p>
+            <div id="sl-options" class="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3"></div>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-3 mt-3">
+            <div class="inline-flex rounded-lg border border-slate-300 overflow-hidden text-sm" role="radiogroup" aria-label="Trade in">
+                <label class="cursor-pointer"><input type="radio" name="mode" value="real" class="peer sr-only" checked>
+                    <span class="block px-4 py-2 peer-checked:bg-amber-100 peer-checked:text-amber-800 peer-checked:font-semibold text-slate-600">Real</span></label>
+                <label class="cursor-pointer border-l border-slate-300"><input type="radio" name="mode" value="forward" class="peer sr-only">
+                    <span class="block px-4 py-2 peer-checked:bg-sky-100 peer-checked:text-sky-800 peer-checked:font-semibold text-slate-600">Forward</span></label>
+            </div>
+            <button type="button" id="place-btn" class="rounded-lg bg-slate-900 text-white text-sm font-semibold px-5 py-2 hover:bg-slate-700 disabled:opacity-50">Place trade</button>
+            <button type="button" id="clear-btn" class="rounded-lg border border-slate-300 text-sm text-slate-600 px-4 py-2 hover:bg-slate-50">Clear</button>
+            <span class="text-xs text-slate-400">Ctrl+Enter places the trade</span>
+        </div>
+
+        <div id="result" class="hidden mt-4 rounded-lg border px-4 py-3 text-sm" role="status" aria-live="polite"></div>
+    </section>
+
+    <details id="options" class="mt-4 bg-white rounded-xl border border-slate-200 shadow-sm">
+        <summary class="cursor-pointer select-none px-4 py-3 text-sm font-medium text-slate-700">
+            Trade options <span id="options-summary" class="ml-2 font-normal text-slate-400"></span>
+        </summary>
+        <div class="px-4 pb-4 border-t border-slate-100">
+            <p id="options-error" class="text-sm text-red-600 mt-3 hidden"></p>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4 mt-4">
+                {% include "trading/_manual_field.html" with name="leverage" label="Leverage" suffix="x" kind="text" inputmode="decimal" %}
+                {% include "trading/_manual_field.html" with name="margin" label="Margin" suffix="USDT" kind="text" inputmode="decimal" %}
+                {% include "trading/_manual_field.html" with name="margin_type" label="Margin type" kind="select" %}
+                {% include "trading/_manual_field.html" with name="entry_mode" label="Entry mode" kind="select" help="NEAREST: long = highest entry, short = lowest. FARTHEST: the opposite. BOTH: lowest + highest, margin split equally." %}
+                {% include "trading/_manual_field.html" with name="sl_mode" label="Stop-loss mode" kind="select" help="TP1_TOUCH: stop-loss moves to entry when price touches TP1. AFTER_FILLING_TP: stop-loss moves to entry after a chosen TP order is filled." %}
+                {% include "trading/_manual_field.html" with name="sl_after_tp" label="Move Stop-loss after TP" kind="text" inputmode="numeric" help="Target number whose fill moves the stop-loss. Used when the stop-loss mode is AFTER_FILLING_TP." %}
+                {% include "trading/_manual_field.html" with name="reversal_mode" label="Reversal mode" kind="select" help="What a NEW manual signal does when a manual trade on that coin is active the other way. ONE_WAY: close it, then take the new signal. IGNORE: skip the new signal. (Hedge Mode is upcoming.)" %}
+                {% include "trading/_manual_field.html" with name="tp_split" label="Default take-profit split" suffix="%" kind="text" help="Percent closed at TP1, TP2, ... separated by commas, e.g. 60, 40. Must add up to 100 or less; any remainder goes to the last target." %}
+                <div>
+                    <label class="block text-xs font-medium text-slate-600 mb-1">Maximum entries</label>
+                    <input type="text" value="{{ max_entries }}" readonly disabled class="w-full rounded-lg border border-slate-200 bg-slate-50 text-slate-500 px-3 py-2 text-sm">
+                    <p class="text-[11px] text-slate-400 mt-1">Fixed by the order logic (a trade has at most two entry orders).</p>
+                </div>
+            </div>
+            <div class="mt-4 flex items-center gap-3">
+                <button type="button" id="defaults-btn" class="rounded-lg border border-slate-300 text-sm text-slate-700 px-4 py-2 hover:bg-slate-50">Default settings</button>
+                <span class="text-xs text-slate-400">Loads the values from Settings &rsaquo; Manual trading. Your last-used values are kept until you save that page.</span>
+            </div>
+        </div>
+    </details>
+</div>
+
+{# Confirmation before a Real order #}
+<div id="confirm-modal" class="hidden fixed inset-0 z-40 flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+    <div class="bg-white rounded-xl shadow-xl w-full max-w-md p-5">
+        <h3 id="confirm-title" class="text-base font-semibold mb-3">Place this Real trade?</h3>
+        <dl id="confirm-body" class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-sm"></dl>
+        <div class="flex justify-end gap-2 mt-5">
+            <button type="button" id="confirm-cancel" class="rounded-lg border border-slate-300 text-sm px-4 py-2 hover:bg-slate-50">Cancel</button>
+            <button type="button" id="confirm-ok" class="rounded-lg bg-amber-600 text-white text-sm font-semibold px-4 py-2 hover:bg-amber-700">Place real trade</button>
+        </div>
+    </div>
+</div>
+
+<form id="manual-csrf" class="hidden">{% csrf_token %}</form>
+{{ config|json_script:"manual-config" }}
+<div id="manual-urls" class="hidden" data-analyze="{% url 'manual-analyze' %}" data-preview="{% url 'manual-preview' %}" data-submit="{% url 'manual-submit' %}" data-result="{% url 'manual-result' 0 %}"></div>
+<script src="/static/trading/js/manual.js?v=3"></script>
+{% endblock %}

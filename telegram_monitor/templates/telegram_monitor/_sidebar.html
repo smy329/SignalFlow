@@ -1,0 +1,44 @@
+<div id="sidebar-backdrop" class="hidden fixed inset-0 z-20 bg-black/40 md:hidden"></div>
+<aside id="sidebar" class="fixed inset-y-0 left-0 z-30 w-44 -translate-x-full md:translate-x-0 transition-transform bg-slate-900 text-slate-300 flex flex-col">
+    <div class="px-4 py-4 text-sm text-white font-semibold tracking-tight border-b border-slate-800">Crypto Signal Monitor</div>
+
+    <nav class="flex-1 overflow-y-auto no-scrollbar px-2 py-4 space-y-1 text-sm">
+        <a href="{% url 'dashboard' %}"
+           class="block rounded-lg px-3 py-2 hover:bg-slate-800 hover:text-white {% if request.resolver_match.url_name == 'dashboard' %}bg-slate-800 text-white{% endif %}">Dashboard</a>
+
+        <div class="nav-group {% if nav_scope == 'manual' %}is-active{% endif %}">
+            <div class="js-nav-label px-3 py-2 text-xs uppercase tracking-wide font-medium cursor-default {% if nav_scope == 'manual' %}text-white{% else %}text-slate-500{% endif %}">Manual Trades</div>
+            <div class="nav-sub"><div>
+            <div class="ml-3 pl-3 border-l border-slate-700 space-y-1">
+                <a href="{% url 'manual-place' %}" class="block rounded-lg px-3 py-1.5 hover:bg-slate-800 hover:text-white {% if nav_scope == 'manual' and nav_item == 'place' %}bg-slate-800 text-white{% endif %}">Place trade</a>
+                <a href="{% url 'manual-trades' %}" class="block rounded-lg px-3 py-1.5 hover:bg-slate-800 hover:text-white {% if nav_scope == 'manual' and nav_item == 'trades' %}bg-slate-800 text-white{% endif %}">Trades</a>
+                <a href="{% url 'manual-history' %}" class="block rounded-lg px-3 py-1.5 hover:bg-slate-800 hover:text-white {% if nav_scope == 'manual' and nav_item == 'history' %}bg-slate-800 text-white{% endif %}">History</a>
+            </div>
+            </div></div>
+        </div>
+
+        {% include "telegram_monitor/_sidebar_group.html" with slug="real" label="Real Trades" %}
+        {% include "telegram_monitor/_sidebar_group.html" with slug="forward" label="Forward Trades" %}
+
+        <a href="{% url 'parser-playground' %}"
+           class="block rounded-lg px-3 py-2 mt-2 hover:bg-slate-800 hover:text-white {% if request.resolver_match.url_name == 'parser-playground' %}bg-slate-800 text-white{% endif %}">Parser Playground</a>
+
+        {# Settings: same layout as the Real / Forward groups, one sub-page per settings group. #}
+        {% load settings_nav %}
+        {% settings_groups as setting_groups %}
+        <div class="nav-group {% if nav_scope == 'settings' %}is-active{% endif %}">
+            <div class="js-nav-label px-3 py-2 text-xs uppercase tracking-wide font-medium cursor-default {% if nav_scope == 'settings' %}text-white{% else %}text-slate-500{% endif %}">Settings</div>
+            <div class="nav-sub"><div>
+            <div class="ml-3 pl-3 border-l border-slate-700 space-y-1">
+                {% for name, slug in setting_groups %}
+                <a href="{% url 'settings-group' slug %}" class="block rounded-lg px-3 py-1.5 hover:bg-slate-800 hover:text-white {% if nav_scope == 'settings' and nav_item == slug %}bg-slate-800 text-white{% endif %}">{{ name }}</a>
+                {% endfor %}
+            </div>
+            </div></div>
+        </div>
+    </nav>
+
+    <div class="px-2 py-3 border-t border-slate-800 text-sm">
+        <a href="{% url 'logout' %}" class="block rounded-lg px-3 py-2 hover:bg-slate-800 hover:text-white">Logout ({{ user.username }})</a>
+    </div>
+</aside>

@@ -1,0 +1,17 @@
+<form method="post" action="{% url scope.slug|add:'-switch' %}" class="flex items-center gap-3"
+      {% if scope.slug == "real" and not enabled and allowed %}onsubmit="return confirm('Turn Real Trades ON? New signals from Real sources will be traded with real money.');"{% endif %}>
+    {% csrf_token %}
+    <input type="hidden" name="next" value="{{ next_url }}">
+    <input type="hidden" name="enabled" value="{% if enabled %}0{% else %}1{% endif %}">
+    {% if not allowed %}
+        <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold text-slate-500 bg-slate-100">OFF</span>
+        <span class="text-xs text-slate-400">Disabled in Settings ({{ scope.config_label }})</span>
+    {% else %}
+        <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold {% if enabled %}text-emerald-700 bg-emerald-50{% else %}text-red-700 bg-red-50{% endif %}">
+            <span class="h-2 w-2 rounded-full {% if enabled %}bg-emerald-500{% else %}bg-red-500{% endif %}"></span>{% if enabled %}ON{% else %}OFF{% endif %}
+        </span>
+        <button type="submit" class="rounded-lg px-3 py-1.5 text-xs font-medium border {% if enabled %}border-red-200 text-red-700 hover:bg-red-50{% else %}border-emerald-200 text-emerald-700 hover:bg-emerald-50{% endif %}">
+            Turn {% if enabled %}OFF{% else %}ON{% endif %}
+        </button>
+    {% endif %}
+</form>

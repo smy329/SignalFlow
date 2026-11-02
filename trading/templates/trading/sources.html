@@ -1,0 +1,102 @@
+{% extends "telegram_monitor/base.html" %}
+{% load trading_tags %}
+{% block title %}{{ scope.label }} · Sources{% endblock %}
+{% block content %}
+<div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+    <div>
+        <h2 class="text-lg font-semibold">{{ scope.label }} <span class="text-slate-400 font-normal">· Sources</span></h2>
+        <p class="text-sm text-slate-500">
+            {% if scope.slug == "real" %}Only signals from these sources are traded live on Binance.{% else %}Only signals from these sources are simulated (forward test).{% endif %}
+        </p>
+    </div>
+    <div class="flex items-center gap-4">
+        {% trading_switch scope.slug request.path %}
+        <a href="{% url scope.slug|add:'-source-create' %}" class="bg-slate-900 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-slate-800 transition-colors">+ Add Source</a>
+    </div>
+</div>
+
+<div class="mb-6">{% include "trading/_stat_cards.html" %}</div>
+
+<section class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+    <table class="w-full table-fixed text-xs xl:text-sm [overflow-wrap:anywhere]">
+        <thead class="text-slate-400 text-[10px] uppercase tracking-wide">
+            <tr>
+                <th class="px-2 py-2 text-left font-medium align-bottom w-[17%]">Source</th>
+                <th class="px-2 py-2 text-left font-medium align-bottom w-[7%]">Status</th>
+                <th class="px-2 py-2 text-left font-medium align-bottom w-[6.5%]">Closed trades</th>
+                <th class="px-2 py-2 text-left font-medium align-bottom w-[5.5%]">Open</th>
+                <th class="px-2 py-2 text-left font-medium align-bottom w-[6.5%]">Pending trades</th>
+                <th class="px-2 py-2 text-left font-medium align-bottom w-[7%]">Cancelled</th>
+                <th class="px-2 py-2 text-left font-medium align-bottom w-[7.5%]">Messages</th>
+                <th class="px-2 py-2 text-left font-medium align-bottom w-[6%]">Win rate</th>
+                <th class="px-2 py-2 text-left font-medium align-bottom w-[8.5%]">Wins / Losses / BE</th>
+                <th class="px-2 py-2 text-left font-medium align-bottom w-[9%]">Total PnL (USDT)</th>
+                <th class="px-2 py-2 text-left font-medium align-bottom w-[7.5%]">Avg PnL</th>
+                <th class="px-2 py-2 w-[12%]"></th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+        {% for row in rows %}
+            {% with s=row.stats source=row.source %}
+            <tr>
+                <td class="px-2 py-2.5">
+                    <div class="font-medium break-words">{{ source.name|default:source.telegram_id }}</div>
+                    <div class="text-xs text-slate-400 break-all">{{ source.telegram_id }}</div>
+                    <div class="text-[10px] text-slate-400 mt-0.5" data-settings-summary>{{ row.settings.summary }}</div>
+                </td>
+                <td class="px-2 py-2.5">
+                    <span data-status-badge class="inline-flex px-2 py-0.5 rounded-full text-[11px] font-medium {% if source.is_active %}text-emerald-700 bg-emerald-50{% else %}text-slate-500 bg-slate-100{% endif %}">{% if source.is_active %}Active{% else %}Inactive{% endif %}</span>
+                </td>
+                <td data-live="{{ source.id }}-trades" class="px-2 py-2.5">{{ s.trades }}</td>
+                <td data-live="{{ source.id }}-open" class="px-2 py-2.5">{{ s.open }}</td>
+                <td data-live="{{ source.id }}-pending" class="px-2 py-2.5">{{ s.pending }}</td>
+                <td data-live="{{ source.id }}-cancelled" class="px-2 py-2.5">{{ s.cancelled }}</td>
+                <td data-live="{{ source.id }}-messages" class="px-2 py-2.5">{{ s.messages }}</td>
+                <td data-live="{{ source.id }}-winrate" class="px-2 py-2.5">{% if s.win_rate is None %}&mdash;{% else %}{{ s.win_rate|floatformat:1 }}%{% endif %}</td>
+                <td data-live="{{ source.id }}-wlb" class="px-2 py-2.5">{{ s.wins }} / {{ s.losses }} / {{ s.breakeven }}</td>
+                <td data-live="{{ source.id }}-pnl" class="px-2 py-2.5 font-medium {% if s.total_pnl > 0 %}text-emerald-600{% elif s.total_pnl < 0 %}text-red-600{% endif %}">{{ s.total_pnl|floatformat:4 }}</td>
+                <td data-live="{{ source.id }}-avg" class="px-2 py-2.5">{% if s.avg_pnl is None %}&mdash;{% else %}{{ s.avg_pnl|floatformat:4 }}{% endif %}</td>
+                <td class="px-2 py-2.5">
+                    <div class="flex items-center justify-end gap-1.5">
+                        <form method="post" action="{% url 'source-toggle' source.pk %}" class="js-toggle-form">
+                            {% csrf_token %}
+                            <button type="submit" role="switch" aria-checked="{% if source.is_active %}true{% else %}false{% endif %}"
+                                    title="{% if source.is_active %}Active: click to deactivate{% else %}Inactive: click to activate{% endif %}"
+                                    class="js-toggle relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors {% if source.is_active %}bg-emerald-500{% else %}bg-red-500{% endif %}">
+                                <span class="js-toggle-knob inline-block h-4 w-4 rounded-full bg-white shadow transition-transform {% if source.is_active %}translate-x-6{% else %}translate-x-1{% endif %}"></span>
+                            </button>
+                        </form>
+                        <button type="button" title="Settings" aria-label="Settings"
+                                class="js-open-settings rounded-md p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-900 transition-colors"
+                                data-action="{% url 'source-settings' source.pk %}" data-name="{{ source.name|default:source.telegram_id }}"
+                                data-leverage="{{ row.settings.leverage }}" data-margin="{{ row.settings.margin }}" data-margin-type="{{ row.settings.margin_type }}"
+                                data-entry-mode="{{ row.settings.entry_mode }}" data-tp="{{ row.settings.tp_csv }}"
+                                data-sl-mode="{{ row.settings.sl_mode }}" data-sl-after-tp="{{ row.settings.sl_after_tp }}"
+                                data-reversal-mode="{{ row.settings.reversal_mode }}">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg>
+                        </button>
+                        <form method="post" action="{% url 'source-delete' source.pk %}"
+                              onsubmit="return confirm('Delete this source together with all of its signals and trades? This cannot be undone.');">
+                            {% csrf_token %}
+                            <button type="submit" title="Delete source" aria-label="Delete source"
+                                    class="rounded-md p-1.5 text-red-500 hover:bg-red-50 hover:text-red-700 transition-colors">
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+                            </button>
+                        </form>
+                    </div>
+                </td>
+            </tr>
+            {% endwith %}
+        {% empty %}
+            <tr><td colspan="12" class="px-2 py-10 text-center text-slate-400">No sources yet. Use “Add Source” to start monitoring a channel.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</section>
+
+
+{{ world_globals|json_script:"world-globals" }}
+{% include "trading/_source_settings_modal.html" %}
+<script src="/static/trading/js/live.js?v=1"></script>
+<script src="/static/trading/js/sources.js?v=3"></script>
+{% endblock %}

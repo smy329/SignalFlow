@@ -1,0 +1,14 @@
+{# Collapsed; opens on hover. The group of the current page (nav_scope == slug) stays open. #}
+<div class="nav-group {% if nav_scope == slug %}is-active{% endif %}">
+    <div class="js-nav-label px-3 py-2 text-xs uppercase tracking-wide font-medium cursor-default {% if nav_scope == slug %}text-white{% else %}text-slate-500{% endif %}">{{ label }}</div>
+    <div class="nav-sub"><div>
+    <div class="ml-3 pl-3 border-l border-slate-700 space-y-1">
+        {% with sources_url=slug|add:"-sources" trades_url=slug|add:"-trades" history_url=slug|add:"-history" messages_url=slug|add:"-messages" %}
+        <a href="{% url sources_url %}" class="block rounded-lg px-3 py-1.5 hover:bg-slate-800 hover:text-white {% if nav_scope == slug and nav_item == 'sources' %}bg-slate-800 text-white{% endif %}">Sources</a>
+        <a href="{% url trades_url %}" class="block rounded-lg px-3 py-1.5 hover:bg-slate-800 hover:text-white {% if nav_scope == slug and nav_item == 'trades' %}bg-slate-800 text-white{% endif %}">Trades</a>
+        <a href="{% url history_url %}" class="block rounded-lg px-3 py-1.5 hover:bg-slate-800 hover:text-white {% if nav_scope == slug and nav_item == 'history' %}bg-slate-800 text-white{% endif %}">History</a>
+        <a href="{% url messages_url %}" class="block rounded-lg px-3 py-1.5 hover:bg-slate-800 hover:text-white {% if nav_scope == slug and nav_item == 'messages' %}bg-slate-800 text-white{% endif %}">Messages</a>
+        {% endwith %}
+    </div>
+    </div></div>
+</div>

@@ -1,0 +1,79 @@
+{% extends "telegram_monitor/base.html" %}
+{% block title %}{{ group.name }} - Settings{% endblock %}
+{% block content %}
+<div class="mb-4">
+    <h2 class="text-lg font-semibold">Settings &rsaquo; {{ group.name }}</h2>
+    <p class="text-sm text-slate-500">
+        These values replace the old <code class="text-xs">.env</code> entries. Each page is saved on its own and takes effect
+        within a few seconds, with no restart. Trades that are already open are never closed or changed by a settings change.
+    </p>
+</div>
+
+{# One hidden form for every "Reset" button (buttons point at it with the form= attribute, so forms are never nested). #}
+<form id="reset-form" method="post" action="{% url 'settings-reset' %}">{% csrf_token %}</form>
+
+<div class="max-w-5xl">
+    <form method="post" action="{% url 'settings-save' group.slug %}" id="{{ group.slug }}"
+          class="bg-white rounded-xl border border-slate-200 shadow-sm scroll-mt-4">
+        {% csrf_token %}
+        <div class="px-5 py-4 border-b border-slate-100">
+            <h3 class="font-semibold">{{ group.name }}</h3>
+            {% if group.help %}<p class="text-sm text-slate-500 mt-1">{{ group.help }}</p>{% endif %}
+        </div>
+
+        <div class="divide-y divide-slate-100">
+        {% for f in group.fields %}
+            {% with d=f.def %}
+            <div class="px-5 py-3 grid gap-2 md:grid-cols-[minmax(0,15rem)_minmax(0,1fr)] md:gap-6 items-start">
+                <div>
+                    <label for="f-{{ f.name }}" class="text-sm font-medium">{{ d.label }}</label>
+                    {% if d.unit %}<span class="text-xs text-slate-400"> ({{ d.unit }})</span>{% endif %}
+                    {% if not d.editable %}<span class="ml-1 text-[10px] uppercase tracking-wide text-slate-400">read-only</span>{% endif %}
+                </div>
+                <div>
+                    {% if not d.editable %}
+                        <div class="text-sm text-slate-700">{{ f.value }}</div>
+                    {% elif d.kind == "bool" %}
+                        <input type="hidden" name="{{ f.name }}" value="0">
+                        <label class="inline-flex items-center gap-2 text-sm">
+                            <input id="f-{{ f.name }}" type="checkbox" name="{{ f.name }}" value="1" {% if f.value is True or f.value == "1" %}checked{% endif %}
+                                   class="h-4 w-4 rounded border-slate-300">
+                            <span>On</span>
+                        </label>
+                    {% elif d.kind == "choice" %}
+                        <select id="f-{{ f.name }}" name="{{ f.name }}"
+                                class="w-full max-w-xs rounded-lg border {% if f.error %}border-red-400{% else %}border-slate-300{% endif %} px-3 py-1.5 text-sm bg-white">
+                            {% for c in d.choices %}<option value="{{ c }}" {% if c == f.value %}selected{% endif %}>{{ c }}</option>{% endfor %}
+                        </select>
+                    {% elif d.kind == "words" %}
+                        <textarea id="f-{{ f.name }}" name="{{ f.name }}" rows="5" spellcheck="false"
+                                  class="w-full max-w-md rounded-lg border {% if f.error %}border-red-400{% else %}border-slate-300{% endif %} px-3 py-1.5 text-sm font-mono">{{ f.value }}</textarea>
+                    {% else %}
+                        <input id="f-{{ f.name }}" type="text" name="{{ f.name }}" value="{{ f.value }}" autocomplete="off"
+                               {% if d.kind == "int" or d.kind == "decimal" %}inputmode="decimal"{% endif %}
+                               class="w-full max-w-md rounded-lg border {% if f.error %}border-red-400{% else %}border-slate-300{% endif %} px-3 py-1.5 text-sm">
+                    {% endif %}
+
+                    {% if f.error %}<p class="text-xs text-red-600 mt-1">{{ f.error }}</p>{% endif %}
+                    {% if d.help %}<p class="text-xs text-slate-500 mt-1">{{ d.help }}</p>{% endif %}
+                    {% if d.editable %}
+                    <p class="text-[11px] text-slate-400 mt-1">
+                        Default: {{ f.default_text|default:"(empty)" }}
+                        {% if not f.is_default %}
+                            &middot; <button type="submit" form="reset-form" name="key" value="{{ f.name }}"
+                                             class="underline hover:text-slate-700">Reset to default</button>
+                        {% endif %}
+                    </p>
+                    {% endif %}
+                </div>
+            </div>
+            {% endwith %}
+        {% endfor %}
+        </div>
+
+        <div class="px-5 py-3 border-t border-slate-100 flex justify-end">
+            <button type="submit" class="bg-slate-900 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-slate-800 transition-colors">Save {{ group.name }}</button>
+        </div>
+    </form>
+</div>
+{% endblock %}

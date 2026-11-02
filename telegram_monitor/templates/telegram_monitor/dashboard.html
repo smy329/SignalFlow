@@ -1,0 +1,88 @@
+{% extends "telegram_monitor/base.html" %}
+{% load trading_tags %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+
+<div class="flex flex-col gap-6">
+
+    <!-- Status bar -->
+    <div class="grid grid-cols-2 sm:grid-cols-3 gap-4">
+        <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+            <div class="text-xs uppercase tracking-wide text-slate-400 font-medium">Active Sources</div>
+            <div class="text-2xl font-semibold mt-1">{{ sources|length }}</div>
+        </div>
+        <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+            <div class="text-xs uppercase tracking-wide text-slate-400 font-medium">Signals Captured</div>
+            <div class="text-2xl font-semibold mt-1" id="signal-count">{{ signal_count }}</div>
+        </div>
+        <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-sm col-span-2 sm:col-span-1">
+            <div class="text-xs uppercase tracking-wide text-slate-400 font-medium">Realtime</div>
+            <div class="mt-1 flex items-center gap-2 text-sm font-medium" id="ws-status">
+                <span class="h-2.5 w-2.5 rounded-full bg-amber-400" id="ws-dot"></span>
+                <span id="ws-label">Connecting...</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Real / Forward trading switches -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+            <div class="text-xs uppercase tracking-wide text-slate-400 font-medium mb-2">Real Trades</div>
+            {% trading_switch "real" request.path %}
+        </div>
+        <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+            <div class="text-xs uppercase tracking-wide text-slate-400 font-medium mb-2">Forward Trades</div>
+            {% trading_switch "forward" request.path %}
+        </div>
+    </div>
+
+    <!-- Sources -->
+    <section class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div class="px-5 py-3 border-b border-slate-100 font-semibold text-sm text-slate-700">Telegram Sources</div>
+        <table class="w-full text-sm">
+            <thead class="text-left text-slate-400 text-xs uppercase tracking-wide">
+                <tr><th class="px-5 py-2">Name</th><th class="px-5 py-2">Telegram ID</th><th class="px-5 py-2">Mode</th><th class="px-5 py-2">Status</th><th class="px-5 py-2"></th></tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+            {% for source in sources %}
+                <tr>
+                    <td class="px-5 py-2.5">{{ source.name|default:source.telegram_id }}</td>
+                    <td class="px-5 py-2.5 text-slate-500">{{ source.telegram_id }}</td>
+                    <td class="px-5 py-2.5">
+                        <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium {% if source.mode == 'REAL' %}text-amber-800 bg-amber-100{% else %}text-sky-800 bg-sky-100{% endif %}">{{ source.get_mode_display }}</span>
+                    </td>
+                    <td class="px-5 py-2.5">
+                        {% if source.is_active %}
+                        <span class="inline-flex items-center gap-1.5 text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full text-xs font-medium">Active</span>
+                        {% else %}
+                        <span class="inline-flex items-center gap-1.5 text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full text-xs font-medium">Inactive</span>
+                        {% endif %}
+                    </td>
+                    <td class="px-5 py-2.5 text-right">
+                        <form method="post" action="{% url 'source-toggle' source.pk %}">
+                            {% csrf_token %}
+                            <input type="hidden" name="next" value="{% url 'dashboard' %}">
+                            <button type="submit" class="text-xs font-medium text-slate-600 hover:text-slate-900 hover:underline">
+                                {% if source.is_active %}Deactivate{% else %}Activate{% endif %}
+                            </button>
+                        </form>
+                    </td>
+                </tr>
+            {% empty %}
+                <tr><td colspan="5" class="px-5 py-6 text-center text-slate-400">No sources yet. Add one under <a href="{% url 'real-sources' %}" class="text-slate-900 underline">Real Trades</a> or <a href="{% url 'forward-sources' %}" class="text-slate-900 underline">Forward Trades</a>.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </section>
+
+    <!-- Signals -->
+    <section>
+        <h2 class="text-sm font-semibold text-slate-700 mb-3">Recent Signals</h2>
+        <div id="signal-grid" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4"></div>
+        <p id="empty-state" class="text-slate-400 text-sm text-center py-10 hidden">No signals captured yet. They'll appear here the moment a monitored channel posts one.</p>
+    </section>
+</div>
+
+{{ recent_signals_json|json_script:"bootstrap-signals" }}
+<script src="/static/telegram_monitor/js/signals_ws.js"></script>
+{% endblock %}

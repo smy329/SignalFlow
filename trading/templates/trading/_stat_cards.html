@@ -1,0 +1,43 @@
+{% url scope.slug|add:'-history' as history_url %}
+{% url scope.slug|add:'-trades-positions' as positions_url %}
+{% url scope.slug|add:'-trades-pending' as pending_url %}
+{% url scope.slug|add:'-trades-cancelled' as cancelled_url %}
+{% url scope.slug|add:'-messages' as messages_url %}
+<div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+    <a href="{{ history_url }}" title="Open History" class="block bg-white rounded-xl border border-slate-200 p-4 shadow-sm hover:border-slate-400 hover:shadow transition">
+        <div class="text-[11px] uppercase tracking-wide text-slate-400 font-medium">Closed trades</div>
+        <div data-live="t-trades" class="text-2xl font-semibold mt-1">{{ totals.trades }}</div>
+    </a>
+    <a href="{{ positions_url }}" title="Open Positions" class="block bg-white rounded-xl border border-slate-200 p-4 shadow-sm hover:border-slate-400 hover:shadow transition">
+        <div class="text-[11px] uppercase tracking-wide text-slate-400 font-medium">Open</div>
+        <div data-live="t-open" class="text-2xl font-semibold mt-1">{{ totals.open }}</div>
+    </a>
+    <a href="{{ pending_url }}" title="Open Pending trades" class="block bg-white rounded-xl border border-slate-200 p-4 shadow-sm hover:border-slate-400 hover:shadow transition">
+        <div class="text-[11px] uppercase tracking-wide text-slate-400 font-medium">Pending trades</div>
+        <div data-live="t-pending" class="text-2xl font-semibold mt-1">{{ totals.pending }}</div>
+    </a>
+    <a href="{{ cancelled_url }}" title="Open Cancelled trades" class="block bg-white rounded-xl border border-slate-200 p-4 shadow-sm hover:border-slate-400 hover:shadow transition">
+        <div class="text-[11px] uppercase tracking-wide text-slate-400 font-medium">Cancelled</div>
+        <div data-live="t-cancelled" class="text-2xl font-semibold mt-1">{{ totals.cancelled }}</div>
+    </a>
+    <a href="{{ messages_url }}" title="Open Messages" class="block bg-white rounded-xl border border-slate-200 p-4 shadow-sm hover:border-slate-400 hover:shadow transition">
+        <div class="text-[11px] uppercase tracking-wide text-slate-400 font-medium">Messages received</div>
+        <div data-live="t-messages" class="text-2xl font-semibold mt-1">{{ totals.messages }}</div>
+    </a>
+    <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+        <div class="text-[11px] uppercase tracking-wide text-slate-400 font-medium">Win rate</div>
+        <div data-live="t-winrate" class="text-2xl font-semibold mt-1">{% if totals.win_rate is None %}&mdash;{% else %}{{ totals.win_rate|floatformat:1 }}%{% endif %}</div>
+    </div>
+    <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+        <div class="text-[11px] uppercase tracking-wide text-slate-400 font-medium">Wins / Losses / BE</div>
+        <div data-live="t-wlb" class="text-2xl font-semibold mt-1">{{ totals.wins }} / {{ totals.losses }} / {{ totals.breakeven }}</div>
+    </div>
+    <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+        <div class="text-[11px] uppercase tracking-wide text-slate-400 font-medium">Total PnL (USDT)</div>
+        <div data-live="t-pnl" class="text-2xl font-semibold mt-1 {% if totals.total_pnl > 0 %}text-emerald-600{% elif totals.total_pnl < 0 %}text-red-600{% endif %}">{{ totals.total_pnl|floatformat:4 }}</div>
+    </div>
+    <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+        <div class="text-[11px] uppercase tracking-wide text-slate-400 font-medium">Avg PnL / trade</div>
+        <div data-live="t-avg" class="text-2xl font-semibold mt-1">{% if totals.avg_pnl is None %}&mdash;{% else %}{{ totals.avg_pnl|floatformat:4 }}{% endif %}</div>
+    </div>
+</div>

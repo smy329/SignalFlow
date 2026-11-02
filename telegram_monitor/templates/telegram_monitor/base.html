@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-slate-50">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}Crypto Signal Monitor{% endblock %}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="/static/telegram_monitor/css/style.css">
+</head>
+<body class="h-full font-sans text-slate-800 antialiased">
+    {% if user.is_authenticated %}{% include "telegram_monitor/_sidebar.html" %}{% endif %}
+
+    <div class="min-h-full flex flex-col {% if user.is_authenticated %}md:pl-44{% endif %}">
+        <header class="bg-slate-900 text-white {% if user.is_authenticated %}md:hidden{% endif %} px-4 sm:px-6 py-3 flex items-center gap-3">
+            {% if user.is_authenticated %}
+            <button type="button" id="sidebar-open" class="text-xl leading-none" aria-label="Open menu">&#9776;</button>
+            {% endif %}
+            <h1 class="text-lg font-semibold tracking-tight">Crypto Signal Monitor</h1>
+        </header>
+
+        {% if messages %}
+        <div class="w-full {% if user.is_authenticated %}px-4 sm:px-5{% else %}max-w-7xl mx-auto px-4 sm:px-6{% endif %} mt-4">
+            {% for message in messages %}
+            <div class="rounded-lg px-4 py-2 mb-2 text-sm {% if message.tags == 'error' %}bg-red-50 text-red-700 border border-red-200{% else %}bg-emerald-50 text-emerald-700 border border-emerald-200{% endif %}">
+                {{ message }}
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        <main class="w-full {% if user.is_authenticated %}px-4 sm:px-5{% else %}max-w-7xl mx-auto px-4 sm:px-6{% endif %} py-6">
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+
+    {% if user.is_authenticated %}
+    <script>
+        (function () {
+            const sidebar = document.getElementById("sidebar");
+            const backdrop = document.getElementById("sidebar-backdrop");
+            const toggle = (open) => {
+                sidebar.classList.toggle("-translate-x-full", !open);
+                backdrop.classList.toggle("hidden", !open);
+            };
+            document.getElementById("sidebar-open").addEventListener("click", () => toggle(true));
+            backdrop.addEventListener("click", () => toggle(false));
+
+            // Touch screens have no hover: tapping a group label opens it and closes the other groups.
+            if (window.matchMedia("(hover: none)").matches) {
+                const groups = document.querySelectorAll(".nav-group");
+                groups.forEach((group) => {
+                    group.querySelector(".js-nav-label").addEventListener("click", () => {
+                        const open = !group.classList.contains("is-open");
+                        groups.forEach((g) => g.classList.remove("is-open"));
+                        group.classList.toggle("is-open", open);
+                    });
+                });
+            }
+        })();
+    </script>
+    {% endif %}
+</body>
+</html>

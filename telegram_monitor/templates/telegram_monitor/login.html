@@ -1,0 +1,17 @@
+{% extends "telegram_monitor/base.html" %}
+{% block title %}Login{% endblock %}
+{% block content %}
+<div class="max-w-sm mx-auto bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+    <h2 class="text-xl font-semibold mb-4">Login</h2>
+    <form method="post" class="space-y-4">
+        {% csrf_token %}
+        {% for field in form %}
+        <div>
+            <label class="block text-sm font-medium text-slate-600 mb-1">{{ field.label }}</label>
+            {{ field }}
+        </div>
+        {% endfor %}
+        <button type="submit" class="w-full bg-slate-900 text-white rounded-lg py-2 text-sm font-medium hover:bg-slate-800 transition-colors">Log in</button>
+    </form>
+</div>
+{% endblock %}

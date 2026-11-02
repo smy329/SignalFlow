@@ -1,0 +1,8 @@
+Django
+djangorestframework
+psycopg[binary]
+Telethon
+python-dotenv
+channels
+daphne
+python-binance

@@ -1,0 +1,13 @@
+<div>
+    <label for="opt-{{ name }}" class="block text-xs font-medium text-slate-600 mb-1">{{ label }}</label>
+    <div class="flex items-center gap-2">
+        {% if kind == "select" %}
+        <select id="opt-{{ name }}" data-option="{{ name }}" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white"></select>
+        {% else %}
+        <input id="opt-{{ name }}" data-option="{{ name }}" type="text" {% if inputmode %}inputmode="{{ inputmode }}"{% endif %} autocomplete="off" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
+        {% endif %}
+        {% if suffix %}<span class="text-sm text-slate-500">{{ suffix }}</span>{% endif %}
+    </div>
+    <p id="err-{{ name }}" class="text-xs text-red-600 mt-1 hidden"></p>
+    {% if help %}<p class="text-[11px] text-slate-400 mt-1">{{ help }}</p>{% endif %}
+</div>
