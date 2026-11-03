@@ -19,7 +19,15 @@ from telegram_monitor.services.signal_parser import (
     DEFAULT_STOPLOSS_WORDS,
     DEFAULT_TARGET_WORDS,
 )
-from trading.domain.strategy import DEFAULT_TP_PERCENTS, ENTRY_MODES, MAX_ENTRIES, REVERSAL_MODES, SL_MODES
+from trading.domain.strategy import (
+    DEFAULT_TP_PERCENTS,
+    ENTRY_MODES,
+    FOLLOW_MODES,
+    MAX_ENTRIES,
+    REVERSAL_MODES,
+    SIGNAL_DIRECTION,
+    SL_MODES,
+)
 from trading.domain.types import MAX_TARGETS
 
 # value kinds
@@ -83,6 +91,12 @@ SL_MODE_HELP = (
     "TP1_TOUCH: stop-loss moves to entry when price touches TP1. "
     "AFTER_FILLING_TP: stop-loss moves to entry after a chosen TP order is filled."
 )
+FOLLOW_HELP = (
+    "SIGNAL_DIRECTION: trade the signal as posted (same direction, take-profits and stop-loss). OPPOSITE_DIRECTION: trade "
+    "its mirror image: a long signal is traded short and a short signal long, the signal's stop-loss becomes the "
+    "take-profit (all of the position) and the signal's TP1 becomes the stop-loss; its other targets are not used, so "
+    "the stop-loss mode and the take-profit split do not apply. The entries are the signal's own."
+)
 SL_AFTER_HELP = "Target number whose fill moves the stop-loss. Used when the stop-loss mode is AFTER_FILLING_TP."
 
 
@@ -103,6 +117,10 @@ def _scoped(scope: str, group: str, *, leverage_default=Decimal("10")) -> list[S
         SettingDef(
             f"{scope}.margin_type", group, "Margin type", CHOICE, "CROSSED", env="SIGNAL_MARGIN_TYPE",
             choices=MARGIN_TYPES,
+        ),
+        SettingDef(
+            f"{scope}.follow_mode", group, "Signal following strategy", CHOICE, SIGNAL_DIRECTION, choices=FOLLOW_MODES,
+            help=FOLLOW_HELP,
         ),
         SettingDef(
             f"{scope}.entry_mode", group, "Entry mode", CHOICE, "NEAREST", choices=tuple(ENTRY_MODES),

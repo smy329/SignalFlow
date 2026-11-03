@@ -16,7 +16,7 @@ from django.utils import timezone
 from runtime_settings import service as runtime
 from telegram_monitor.models import MANUAL_TELEGRAM_ID, ParsedSignal, TelegramSource
 from trading.domain.quantize import to_decimal
-from trading.domain.strategy import DEFAULT_STRATEGY, SourceStrategy
+from trading.domain.strategy import DEFAULT_STRATEGY, OPPOSITE_DIRECTION, SourceStrategy, apply_follow
 from trading.domain.types import ENTRY_ROLES, OrderKind, OrderRole, OrderSpec, SignalInput, TradePlan
 from trading.exchange.base import OrderState, PlacedOrder
 from trading.models import ACTIVE_STATUSES, Trade, TradeOrder
@@ -92,6 +92,11 @@ class TradeSnap:
 # ---- reading ----------------------------------------------------------------
 
 
+def is_opposite(strategy: Optional[dict]) -> bool:
+    """Was this trade planned as the mirror image of its signal? (From the strategy saved with the trade.)"""
+    return SourceStrategy.from_dict(strategy).follow == OPPOSITE_DIRECTION
+
+
 def strategy_from_source(source: TelegramSource, default_tp: Optional[tuple] = None) -> SourceStrategy:
     """The strategy of a source as a pure domain value: its own override where it has one, else the global
     value of its world (Real trading / Forward test). `default_tp` is the take-profit split used when the
@@ -105,6 +110,7 @@ def strategy_from_source(source: TelegramSource, default_tp: Optional[tuple] = N
         sl_after_tp=runtime.effective(source, "sl_after_tp"),
         default_tp=tuple(default_tp),
         reversal=runtime.effective(source, "reversal_mode"),
+        follow=runtime.effective(source, "follow_mode"),
     )
 
 
@@ -112,24 +118,28 @@ def load_signal(signal_id: int) -> Optional[SignalData]:
     s = ParsedSignal.objects.select_related("source").filter(pk=signal_id).first()
     if s is None:
         return None
+    # A manual trade carries the strategy chosen on its page; Telegram signals use their source's.
+    strategy = SourceStrategy.from_dict(s.strategy_override) if s.strategy_override else strategy_from_source(s.source)
+    signal = SignalInput(
+        symbol=s.symbol,
+        side=s.direction,
+        entry=to_decimal(s.entry),
+        targets=tuple(to_decimal(t) for t in s.targets),
+        stoploss=to_decimal(s.stoploss),
+        leverage=to_decimal(s.leverage),
+        margin=None if s.margin is None else to_decimal(s.margin),
+        margin_type=s.margin_type,
+        entries=tuple(to_decimal(e) for e in s.entries),
+    )
     return SignalData(
         signal_id=s.id,
-        input=SignalInput(
-            symbol=s.symbol,
-            side=s.direction,
-            entry=to_decimal(s.entry),
-            targets=tuple(to_decimal(t) for t in s.targets),
-            stoploss=to_decimal(s.stoploss),
-            leverage=to_decimal(s.leverage),
-            margin=None if s.margin is None else to_decimal(s.margin),
-            margin_type=s.margin_type,
-            entries=tuple(to_decimal(e) for e in s.entries),
-        ),
+        # From here on the trade works with what is to be traded: for an "opposite" source the mirror image of the
+        # signal (the stored signal itself is never changed).
+        input=apply_follow(signal, strategy.follow),
         channel=s.channel,
         source_mode=s.source.mode,
         source_id=s.source_id,
-        # A manual trade carries the strategy chosen on its page; Telegram signals use their source's.
-        strategy=SourceStrategy.from_dict(s.strategy_override) if s.strategy_override else strategy_from_source(s.source),
+        strategy=strategy,
         manual=s.source.telegram_id == MANUAL_TELEGRAM_ID,
     )
 
@@ -221,6 +231,7 @@ def active_live_trades_by_symbol() -> dict[str, dict]:
         t.symbol: {
             "trade_id": t.id,
             "channel": t.signal.channel,
+            "opposite": is_opposite(t.strategy),
             "stoploss": t.stoploss,
             "targets": [Decimal(x) for x in t.targets],
             "opened_at": t.opened_at,
@@ -371,6 +382,7 @@ def trade_rows(mode: Optional[str], status: str, limit: Optional[int] = None, ma
                 "id": t.id,
                 "mode": t.mode,
                 "recorded_exit_price": t.exit_price,
+                "opposite": is_opposite(t.strategy),
                 "channel": t.signal.channel,
                 "symbol": t.symbol,
                 "side": t.side,

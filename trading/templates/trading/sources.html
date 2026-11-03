@@ -70,7 +70,7 @@
                                 class="js-open-settings rounded-md p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-900 transition-colors"
                                 data-action="{% url 'source-settings' source.pk %}" data-name="{{ source.name|default:source.telegram_id }}"
                                 data-leverage="{{ row.settings.leverage }}" data-margin="{{ row.settings.margin }}" data-margin-type="{{ row.settings.margin_type }}"
-                                data-entry-mode="{{ row.settings.entry_mode }}" data-tp="{{ row.settings.tp_csv }}"
+                                data-follow-mode="{{ row.settings.follow_mode }}" data-entry-mode="{{ row.settings.entry_mode }}" data-tp="{{ row.settings.tp_csv }}"
                                 data-sl-mode="{{ row.settings.sl_mode }}" data-sl-after-tp="{{ row.settings.sl_after_tp }}"
                                 data-reversal-mode="{{ row.settings.reversal_mode }}">
                             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg>
@@ -98,5 +98,5 @@
 {{ world_globals|json_script:"world-globals" }}
 {% include "trading/_source_settings_modal.html" %}
 <script src="/static/trading/js/live.js?v=1"></script>
-<script src="/static/trading/js/sources.js?v=3"></script>
+<script src="/static/trading/js/sources.js?v=3x"></script>
 {% endblock %}

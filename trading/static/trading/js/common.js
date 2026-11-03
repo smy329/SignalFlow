@@ -78,7 +78,18 @@ window.TradingUI = (function () {
   /* Column = { label, cell(row) -> Node }.  Shared by every table. */
   const col = {
     mode: { label: "Mode", weight: 8, cell: (r) => modeBadge(r.mode) },
-    channel: { label: "Channel", weight: 13, cell: (r) => plain(r.channel || "—") },
+    channel: {
+      label: "Channel", weight: 13,
+      cell: (r) => {
+        const box = el("span", "", r.channel || "—");
+        if (r.opposite) {  // traded as the mirror image of the signal
+          const tag = el("span", "ml-1.5 rounded bg-violet-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-violet-700 whitespace-nowrap", "Opposite");
+          tag.title = "Traded opposite to the signal: reverse direction, the signal's SL as take-profit and its TP1 as stop-loss";
+          box.appendChild(tag);
+        }
+        return box;
+      },
+    },
     side: { label: "Side", weight: 8, cell: (r) => sideBadge(r.side) },
     symbol: { label: "Symbol", weight: 11, cell: (r) => el("span", "font-semibold", r.symbol) },
     entry: {

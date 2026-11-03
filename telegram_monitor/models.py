@@ -33,6 +33,10 @@ class TelegramSource(models.Model):
         TP1_TOUCH = "TP1_TOUCH", "When price touches TP1"
         AFTER_FILLING_TP = "AFTER_FILLING_TP", "After a chosen TP is filled"
 
+    class FollowMode(models.TextChoices):
+        SIGNAL_DIRECTION = "SIGNAL_DIRECTION", "According to signal's direction"
+        OPPOSITE_DIRECTION = "OPPOSITE_DIRECTION", "Opposite to signal's direction"
+
     class ReversalMode(models.TextChoices):
         ONE_WAY = "ONE_WAY", "One-Way Mode"  # opposite signal: close this source's trade on the coin, take the new one
         IGNORE = "IGNORE", "Ignore"  # opposite signal: skip it, the active trade carries on
@@ -43,6 +47,7 @@ class TelegramSource(models.Model):
     leverage = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True, default=None)
     margin = models.DecimalField(max_digits=20, decimal_places=8, null=True, blank=True, default=None)
     margin_type = models.CharField(max_length=30, null=True, blank=True, default=None)
+    follow_mode = models.CharField(max_length=20, choices=FollowMode.choices, null=True, blank=True, default=None)
     entry_mode = models.CharField(max_length=8, choices=EntryMode.choices, null=True, blank=True, default=None)
     # Percent of the position closed at each target; blank = 0 %. All blank = the world's default split.
     tp1_pct = models.PositiveSmallIntegerField(null=True, blank=True, validators=[MaxValueValidator(100)])

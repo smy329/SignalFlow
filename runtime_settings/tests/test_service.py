@@ -13,7 +13,7 @@ from telegram_monitor.services.signal_parser import ParserRules, parse_signal
 
 
 REAL_OPTIONS = {  # the options every Real / Forward group post carries besides the four signal values
-    "real.entry_mode": "NEAREST", "real.sl_mode": "TP1_TOUCH", "real.sl_after_tp": "1",
+    "real.follow_mode": "SIGNAL_DIRECTION", "real.entry_mode": "NEAREST", "real.sl_mode": "TP1_TOUCH", "real.sl_after_tp": "1",
     "real.reversal_mode": "ONE_WAY", "real.tp_split": "60, 40",
 }
 

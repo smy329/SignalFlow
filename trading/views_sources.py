@@ -13,7 +13,13 @@ from telegram_monitor.services import message_service
 from telegram_monitor.services.telegram_client import TelegramConfigError
 from telegram_monitor.services.telegram_listener import listener_manager
 from runtime_settings import registry
-from trading.domain.strategy import REVERSAL_IGNORE, SL_AFTER_FILLING_TP, SourceStrategy, validate as validate_strategy
+from trading.domain.strategy import (
+    OPPOSITE_DIRECTION,
+    REVERSAL_IGNORE,
+    SL_AFTER_FILLING_TP,
+    SourceStrategy,
+    validate as validate_strategy,
+)
 from trading.scopes import REAL, SCOPE_BY_SOURCE_MODE, SCOPES
 from trading.services import switch_service
 from trading.services import trade_repository as repo
@@ -53,16 +59,20 @@ def _settings_attrs(source: TelegramSource) -> dict:
         last = max(i for i, p in enumerate(strategy.tp_percents) if p)
         tps = "/".join(str(p or 0) for p in strategy.tp_percents[: last + 1])
     stop = f"SL to entry after TP{strategy.sl_after_tp}" if strategy.sl_mode == SL_AFTER_FILLING_TP else "SL to entry at TP1"
+    opposite = strategy.follow == OPPOSITE_DIRECTION
     values = runtime.source_signal_values(source)
     size = f"{_plain(values.leverage)}x · " + (f"{_plain(values.margin)} USDT" if values.margin is not None else "no margin") + f" · {values.margin_type}"
     custom = sum(runtime.is_overridden(source, n) for n in runtime.SOURCE_OVERRIDE_FIELDS) + int(not strategy.uses_default_tp)
     return {
-        "summary": f"{size} · {_ENTRY_LABELS.get(strategy.entry_mode, strategy.entry_mode)} · TP {tps} · {stop}"
+        "summary": ("Opposite to signals · " if opposite else "")
+        + f"{size} · {_ENTRY_LABELS.get(strategy.entry_mode, strategy.entry_mode)} · "
+        + ("TP = signal SL, SL = signal TP1" if opposite else f"TP {tps} · {stop}")
         + (" · Ignores reversals" if strategy.reversal == REVERSAL_IGNORE else " · One-Way reversal")
         + (f" · {custom} custom" if custom else " · all global"),
         "leverage": _blank(source.leverage and _plain(source.leverage)),
         "margin": _blank(source.margin and _plain(source.margin)),
         "margin_type": _blank(source.margin_type),
+        "follow_mode": _blank(source.follow_mode),
         "entry_mode": _blank(source.entry_mode),
         "tp_csv": ",".join("" if p is None else str(p) for p in (getattr(source, f) for f in TelegramSource.TP_PCT_FIELDS)),
         "sl_mode": _blank(source.sl_mode),
@@ -78,6 +88,7 @@ def _world_globals(scope) -> dict:
         "leverage": _plain(values["leverage"]),
         "margin": "" if values["margin"] is None else _plain(values["margin"]),
         "margin_type": values["margin_type"],
+        "follow_mode": values["follow_mode"],
         "entry_mode": values["entry_mode"],
         "sl_mode": values["sl_mode"],
         "sl_after_tp": values["sl_after_tp"],
@@ -197,7 +208,7 @@ def source_settings(request, pk: int):
     pick = lambda name: glob[name] if new[name] is None else new[name]  # noqa: E731
     strategy = SourceStrategy(
         entry_mode=pick("entry_mode"), tp_percents=percents, sl_mode=pick("sl_mode"), sl_after_tp=pick("sl_after_tp"),
-        reversal=pick("reversal_mode"), default_tp=tuple(glob["tp_split"]),
+        reversal=pick("reversal_mode"), default_tp=tuple(glob["tp_split"]), follow=pick("follow_mode"),
     )
     errors = validate_strategy(strategy)
     if errors:

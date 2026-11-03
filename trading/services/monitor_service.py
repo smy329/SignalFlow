@@ -30,7 +30,7 @@ from trading.domain.pnl import Fill, average_price, trade_pnl
 from trading.domain.planner import plan_exits
 from trading.domain.quantize import floor_to_step, round_to_tick
 from trading.domain.rules import PriceObservation, pending_entry_cancel_reason, price_reached
-from trading.domain.strategy import SL_AFTER_FILLING_TP, sl_trigger_target
+from trading.domain.strategy import OPPOSITE_DIRECTION, SL_AFTER_FILLING_TP, sl_trigger_target
 from trading.domain.types import ENTRY_ROLES, TP_ROLES, OrderKind, OrderRole, OrderSpec, close_side, tp_number
 from trading.exchange import base
 from trading.exchange.base import ExchangeGateway
@@ -303,6 +303,8 @@ class MonitorService:
     async def _sl_rule_fired(self, gateway, trade: TradeSnap) -> bool:
         """Is it time to move the SL to entry? Decided by the source's SL strategy."""
         strategy = trade.strategy
+        if strategy.follow == OPPOSITE_DIRECTION:  # one take-profit, and the stop-loss is the signal's TP1: nothing to move
+            return False
         if strategy.sl_mode == SL_AFTER_FILLING_TP:
             present = sorted({tp_number(o.role) for o in trade.rows(*TP_ROLES_V)})
             target = sl_trigger_target(strategy, present)

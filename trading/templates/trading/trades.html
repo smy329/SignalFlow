@@ -30,6 +30,6 @@
 
 <form id="trade-csrf" class="hidden">{% csrf_token %}</form>
 <div id="trade-config" class="hidden" data-tab="{{ tab }}" data-scope="{{ scope.slug }}"{% if scope.manual %} data-manual="1"{% endif %} data-url="{% url scope.slug|add:'-api-'|add:tab %}"{% if tab == "positions" or tab == "pending" %} data-close-url="{% url scope.slug|add:'-api-close' 0 %}"{% endif %}{% if tab == "pending" %} data-trade-now-url="{% url scope.slug|add:'-api-trade-now' 0 %}"{% endif %}></div>
-<script src="/static/trading/js/common.js?v=3"></script>
+<script src="/static/trading/js/common.js?v=4"></script>
 <script src="/static/trading/js/trades.js?v=5"></script>
 {% endblock %}

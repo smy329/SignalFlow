@@ -41,6 +41,29 @@
                 </fieldset>
 
                 <fieldset>
+                    <legend class="text-sm font-semibold mb-2">Signal following strategy</legend>
+                    <p class="text-xs text-slate-500 mb-2">Trade what this source posts, or the exact opposite of it.</p>
+                    <div class="grid gap-2">
+                        <label class="mb-0 flex items-start gap-3 rounded-lg border border-slate-200 p-3 cursor-pointer has-[:checked]:border-slate-900 has-[:checked]:bg-slate-50">
+                            <input type="radio" name="follow_mode" value="" class="mt-1 h-4 w-4 shrink-0 p-0">
+                            <span class="text-sm"><span class="font-medium">Use global</span> <span class="text-xs text-slate-400">(default)</span><br>
+                                <span class="text-xs text-slate-500">Follow <span data-global="follow_mode" class="font-medium text-slate-700"></span> from Settings &rsaquo; {{ scope.label }} &mdash; changes there apply to this source automatically.</span></span>
+                        </label>
+                        <label class="mb-0 flex items-start gap-3 rounded-lg border border-slate-200 p-3 cursor-pointer has-[:checked]:border-slate-900 has-[:checked]:bg-slate-50">
+                            <input type="radio" name="follow_mode" value="SIGNAL_DIRECTION" class="mt-1 h-4 w-4 shrink-0 p-0">
+                            <span class="text-sm"><span class="font-medium">According to signal's direction</span><br>
+                                <span class="text-xs text-slate-500">The trade is placed exactly like the signal: same direction, take-profits and stop-loss.</span></span>
+                        </label>
+                        <label class="mb-0 flex items-start gap-3 rounded-lg border border-slate-200 p-3 cursor-pointer has-[:checked]:border-slate-900 has-[:checked]:bg-slate-50">
+                            <input type="radio" name="follow_mode" value="OPPOSITE_DIRECTION" class="mt-1 h-4 w-4 shrink-0 p-0">
+                            <span class="text-sm"><span class="font-medium">Opposite to signal's direction</span><br>
+                                <span class="text-xs text-slate-500">A long signal is traded short and a short signal long, from the signal's own entries. The signal's stop-loss becomes the take-profit (the whole position) and the signal's TP1 becomes the stop-loss. Its other targets are not used.</span></span>
+                        </label>
+                    </div>
+                    <p id="follow-note" class="hidden mt-2 text-xs text-violet-700">Opposite mode uses one take-profit (the signal's stop-loss) and the signal's TP1 as the stop-loss, so the take-profit and stop-loss strategies below do not apply.</p>
+                </fieldset>
+
+                <fieldset>
                     <legend class="text-sm font-semibold mb-2">1. Entry strategy</legend>
                     <p class="text-xs text-slate-500 mb-2">When a signal lists several entries, only the lowest and the highest are considered.</p>
                     <div class="grid gap-2">
@@ -67,7 +90,7 @@
                     </div>
                 </fieldset>
 
-                <fieldset>
+                <fieldset data-follow-off>
                     <legend class="text-sm font-semibold mb-2">2. Take-profit strategy</legend>
                     <p class="text-xs text-slate-500 mb-3">Percent of the position closed at each target (whole numbers, blank = 0%). Leave everything blank to use the global split (<span data-global="tp_split" class="font-medium text-slate-700"></span>). The last target of a signal always closes whatever is still open; if your percentages total less than 100%, the next target after the last one you set covers the rest.</p>
                     <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -83,7 +106,7 @@
                     <p id="tp-total" class="text-xs mt-3 text-slate-500"></p>
                 </fieldset>
 
-                <fieldset>
+                <fieldset data-follow-off>
                     <legend class="text-sm font-semibold mb-2">3. Stop-loss strategy</legend>
                     <p class="text-xs text-slate-500 mb-2">The stop-loss moves to your (average) entry price for what is left of the position. A second entry that is still waiting is cancelled at that moment.</p>
                     <div class="grid gap-2">

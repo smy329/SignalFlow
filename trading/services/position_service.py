@@ -45,6 +45,7 @@ def rows_from(snapshots: list[dict[str, Any]], trades: dict[str, dict]) -> list[
             {
                 "trade_id": ours["trade_id"] if ours else None,  # None: opened by hand on Binance, nothing to close here
                 "channel": ours["channel"] if ours else "—",
+                "opposite": bool(ours and ours.get("opposite")),
                 "symbol": snap["symbol"],
                 "side": metrics.side,
                 "leverage": snap["leverage"],

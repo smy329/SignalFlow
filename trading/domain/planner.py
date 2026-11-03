@@ -83,7 +83,7 @@ def plan_trade(
     targets = _usable_targets(side, [round_to_tick(t, filters.tick_size) for t in signal.targets[:MAX_TARGETS]])
 
     candidates = _unique(
-        round_to_tick(e, filters.tick_size) for e in select_entries(side, signal.all_entries, strategy.entry_mode)
+        round_to_tick(e, filters.tick_size) for e in select_entries(signal.entry_side or side, signal.all_entries, strategy.entry_mode)
     )
     valid, failure = [], None
     for entry in candidates:

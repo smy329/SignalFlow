@@ -50,7 +50,8 @@
   const slAfter = form.elements.sl_after_tp;
   const globals = JSON.parse(document.getElementById("world-globals").textContent);
   const LABELS = { NEAREST: "Nearest entry", FARTHEST: "Farthest entry", BOTH: "Both entries", TP1_TOUCH: "stop-loss at TP1 touch",
-                   AFTER_FILLING_TP: "stop-loss after a chosen TP is filled", ONE_WAY: "One-Way Mode", IGNORE: "Ignore" };
+                   AFTER_FILLING_TP: "stop-loss after a chosen TP is filled", ONE_WAY: "One-Way Mode", IGNORE: "Ignore",
+                   SIGNAL_DIRECTION: "According to signal's direction", OPPOSITE_DIRECTION: "Opposite to signal's direction" };
   const pretty = (v) => LABELS[v] || v;
   /* "Use global (currently ...)" hints, and the placeholders of the blank-means-global inputs */
   document.querySelectorAll("[data-global]").forEach(function (node) {
@@ -102,8 +103,13 @@
     const mar = form.elements.margin.value.trim();
     if (mar !== "" && !(Number(mar) > 0)) errors.push("Margin per trade must be a number greater than 0.");
 
+    const follow = (checked("follow_mode") && checked("follow_mode").value) || globals.follow_mode;
+    const opposite = follow === "OPPOSITE_DIRECTION";  // one take-profit and a fixed stop-loss: those two strategies do not apply
+    form.querySelectorAll("[data-follow-off]").forEach((node) => node.classList.toggle("opacity-40", opposite));
+    document.getElementById("follow-note").classList.toggle("hidden", !opposite);
+
     const slMode = (checked("sl_mode") && checked("sl_mode").value) || globals.sl_mode;
-    if (slMode === "AFTER_FILLING_TP") {
+    if (!opposite && slMode === "AFTER_FILLING_TP") {
       const n = slAfter.value.trim() === "" ? Number(globals.sl_after_tp) : Number(slAfter.value);
       if (!Number.isInteger(n) || n < 1 || n > 8) {
         errors.push("The stop-loss TP number must be a whole number from 1 to 8.");
@@ -129,6 +135,7 @@
     form.elements.margin_type.value = button.dataset.marginType;
     const pick = (name, value) => (form.querySelector('input[name="' + name + '"][value="' + value + '"]:not(:disabled)')
       || form.querySelector('input[name="' + name + '"][value=""]')).checked = true;  /* unknown value: Use global */
+    pick("follow_mode", button.dataset.followMode);
     pick("entry_mode", button.dataset.entryMode);
     tpInputs.forEach((input) => (input.value = ""));
     button.dataset.tp.split(",").forEach(function (value, i) {

@@ -23,17 +23,24 @@ Stop-loss strategy (always moves to the average entry, for what is left):
   AFTER_FILLING_TP  once the order of target number `sl_after_tp` has been filled
                     (stored as "AFTER_TP" before v2.12; that text is still understood everywhere)
 
+Signal following strategy (what the trade does with the signal):
+  SIGNAL_DIRECTION    trade the signal as posted: same direction, take-profits and stop-loss
+  OPPOSITE_DIRECTION  trade its mirror image: a long signal is traded short and vice versa; the signal's stop-loss
+                      becomes the one take-profit (100 % of the position) and the signal's TP1 becomes the stop-loss.
+                      Its other targets are not used, so the stop-loss and take-profit strategies do not apply.
+                      The entries are the signal's own, picked by the entry strategy relative to the signal's direction.
+
 Reversal mode (a signal in the opposite direction of this source's own active trade on the same coin):
   ONE_WAY    close that trade fully, then take the new signal (close and reverse)
   IGNORE     leave the active trade alone and skip the new signal
   HEDGE      upcoming: open an independent opposite position and keep both. Not selectable yet.
 """
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from decimal import Decimal
 from typing import Any, Mapping, Optional, Sequence
 
 from trading.domain.quantize import floor_to_step
-from trading.domain.types import BUY, MAX_TARGETS
+from trading.domain.types import BUY, MAX_TARGETS, SELL, SignalInput
 
 NEAREST = "NEAREST"
 FARTHEST = "FARTHEST"
@@ -57,6 +64,10 @@ REVERSAL_IGNORE = "IGNORE"
 REVERSAL_HEDGE = "HEDGE"  # upcoming: shown in the UI but not selectable and not implemented
 REVERSAL_MODES = (REVERSAL_ONE_WAY, REVERSAL_IGNORE)  # the selectable ones
 
+SIGNAL_DIRECTION = "SIGNAL_DIRECTION"
+OPPOSITE_DIRECTION = "OPPOSITE_DIRECTION"
+FOLLOW_MODES = (SIGNAL_DIRECTION, OPPOSITE_DIRECTION)
+
 MAX_ENTRIES = 2
 DEFAULT_TP_PERCENTS = (60, 40)
 
@@ -77,6 +88,7 @@ class SourceStrategy:
     sl_mode: str = SL_TP1_TOUCH
     sl_after_tp: int = 1  # only used by SL_AFTER_FILLING_TP
     reversal: str = REVERSAL_ONE_WAY  # what an opposite signal on a coin this source already trades does
+    follow: str = SIGNAL_DIRECTION  # trade the signal as posted, or its mirror image
     # The split used when no tp_percents are configured. Snapshotted with the trade, so changing the
     # global default never changes the exits of a trade that is already open.
     default_tp: tuple = DEFAULT_TP_PERCENTS
@@ -98,6 +110,7 @@ class SourceStrategy:
             "sl_after_tp": self.sl_after_tp,
             "default_tp": list(self.default_tp),
             "reversal": self.reversal,
+            "follow": self.follow,
         }
 
     @classmethod
@@ -112,6 +125,7 @@ class SourceStrategy:
             sl_after_tp=int(data.get("sl_after_tp") or 1),
             default_tp=tuple(data.get("default_tp") or DEFAULT_TP_PERCENTS),
             reversal=data.get("reversal") or REVERSAL_ONE_WAY,
+            follow=data.get("follow") or SIGNAL_DIRECTION,  # trades saved before this option followed the signal
         )
 
 
@@ -139,7 +153,24 @@ def validate(strategy: SourceStrategy) -> list[str]:
         errors.append("Hedge Mode is not available yet. Choose One-Way Mode or Ignore.")
     elif strategy.reversal not in REVERSAL_MODES:
         errors.append("Choose a valid reversal mode.")
+    if strategy.follow not in FOLLOW_MODES:
+        errors.append("Choose a valid signal following strategy.")
     return errors
+
+
+def apply_follow(signal: SignalInput, follow: str) -> SignalInput:
+    """The signal as it is to be traded. OPPOSITE_DIRECTION returns its mirror image: reverse side, the signal's
+    stop-loss as the only target and its TP1 as the stop-loss. Anything else (or a signal with no target to
+    use as the stop-loss) is returned unchanged; the planner then rejects what cannot be traded."""
+    if follow != OPPOSITE_DIRECTION or not signal.targets or signal.side not in (BUY, SELL):
+        return signal
+    return replace(
+        signal,
+        side=SELL if signal.side == BUY else BUY,
+        targets=(signal.stoploss,),
+        stoploss=signal.targets[0],
+        entry_side=signal.side,
+    )
 
 
 def select_entries(side: str, entries: Sequence[Decimal], mode: str) -> list[Decimal]:

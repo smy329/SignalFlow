@@ -319,7 +319,7 @@ def default_tp_split(scope: str = "real") -> tuple[int, ...]:
 # A source stores None for every value it does not override ("Use global"); the value of its world
 # (Real trading / Forward test page of Settings) is then read live. Source value first, world value second.
 
-SOURCE_OVERRIDE_FIELDS = ("leverage", "margin", "margin_type", "entry_mode", "sl_mode", "sl_after_tp", "reversal_mode")
+SOURCE_OVERRIDE_FIELDS = ("leverage", "margin", "margin_type", "follow_mode", "entry_mode", "sl_mode", "sl_after_tp", "reversal_mode")
 
 
 def world_of(source) -> str:

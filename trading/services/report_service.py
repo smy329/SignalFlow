@@ -48,6 +48,7 @@ def _common(r: dict) -> dict[str, Any]:
         "id": r["id"],
         "trade_id": r["id"],
         "channel": r["channel"],
+        "opposite": bool(r.get("opposite")),  # a mirror-image trade of its signal
         "symbol": r["symbol"],
         "side": "LONG" if r["side"] == "BUY" else "SHORT",
         "leverage": r["leverage"],

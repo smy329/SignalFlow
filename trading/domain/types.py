@@ -78,6 +78,10 @@ class SignalInput:
     # Every entry the signal listed (the source's entry strategy picks from these).
     # Empty for signals saved before multi-entry support: `entry` is then the only one.
     entries: tuple[Decimal, ...] = ()
+    # Set when the trade is the mirror image of the signal (Opposite to signal's direction): the direction the
+    # SIGNAL had. The entry strategy (nearest / farthest) is applied relative to it, so a long signal's nearest
+    # entry stays its highest one even though the trade is a short.
+    entry_side: Optional[str] = None
 
     @property
     def all_entries(self) -> tuple[Decimal, ...]:
