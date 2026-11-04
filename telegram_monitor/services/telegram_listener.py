@@ -213,7 +213,7 @@ class TelegramListenerManager:
         if message is None:
             return  # duplicate Telegram message — never re-run signal parsing on it
 
-        logger.info("Saved Telegram message %s from source %s (%s)", message.telegram_message_id, source.telegram_id, source.mode)
+        logger.info("Saved Telegram message %s from source %s (%s)", message.telegram_message_id, source, source.mode)
 
         # Hand off to the signal pipeline: parse -> validate -> duplicate
         # check -> persist -> broadcast. Isolated in its own service so a
