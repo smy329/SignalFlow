@@ -5,15 +5,28 @@ No Django ORM, no Telethon, no HTTP, no WebSocket, no logging side effects
 beyond what the caller asks for via the returned result. This module must
 remain independently importable and testable without Django installed.
 
-Algorithm is a direct refactor of the original `parse_signal()` — extraction
-semantics (symbol/direction/entry/targets/stoploss detection) are preserved
-exactly. What changed vs. the original:
-  - no `print()` — returns a structured result instead
-  - no config-module import — leverage/margin/margin_type are parameters
-  - no DB / realtime side effects — this function only parses text
-  - explicit error codes instead of `return None`
+Extraction is line- and label-based:
+  - the text is Unicode-normalised (diacritics stripped) and emoji are removed
+  - the symbol comes from an explicit pair (BTC/USDT, BTCUSDT, BTC USDT) or,
+    when no pair is written, from the ticker nearest the direction word
+  - every line is split into the labels it contains, so several labels can
+    share one line ("Entry: 100 | TP: 110 | SL: 90")
+  - entry / target / stop-loss blocks are collected even when the values are
+    on the following lines
+  - prices support thousands separators, leading-dot decimals and scientific
+    notation; percentages are resolved against the entry price (SL: 2% below,
+    TP: 20%)
+  - the resulting levels are validated (SL and every target must be on the
+    correct side of the entry) before a signal is returned.
+
+The public API (`parse_signal`, `ParserRules`, `ParseResult`, error codes) is
+unchanged. Messages with more than one explicit trading pair are rejected
+with MULTIPLE_SIGNALS, because one Telegram message produces at most one
+signal by design.
 """
+import math
 import re
+import unicodedata
 from dataclasses import dataclass, field
 from typing import Optional, Sequence, TypedDict
 
@@ -58,12 +71,14 @@ NO_DIRECTION = "NO_DIRECTION"
 NO_ENTRY = "NO_ENTRY"
 NO_TARGET = "NO_TARGET"
 NO_STOPLOSS = "NO_STOPLOSS"
+INVALID_LEVELS = "INVALID_LEVELS"
+MULTIPLE_SIGNALS = "MULTIPLE_SIGNALS"
 PARSER_ERROR = "PARSER_ERROR"
 
 # ---------------------------------------------------------------------------
 # Tunable parser rules. These defaults are what the Settings page starts with; the
 # live pipeline builds a ParserRules from the stored settings (see
-# telegram_monitor.services.parser_rules) and passes it to parse_signal().
+# runtime_settings.service.parser_rules) and passes it to parse_signal().
 # ---------------------------------------------------------------------------
 DEFAULT_MIN_MESSAGE_LENGTH = 80
 
@@ -86,6 +101,34 @@ DEFAULT_TARGET_WORDS = (
     "TAKE PROFITS",
 )
 DEFAULT_STOPLOSS_WORDS = ("SL", "STOP LOSS", "STOPLOSS", "STOP-LOSS", "STOP", "PERDA", "LOSS")
+
+_DIRECTION_RE = re.compile(r'\b(LONG|BUY|SHORT|SELL|LONGING|SHORTING)\b')
+_TP_LABEL_RE = re.compile(r'\bTP\s*\d+\b')
+
+# A price. Supported: 100,000 / 1,234.56 / 0.5 / .5 / 100 / 9.1e-6.
+# The look-behind keeps numbers embedded in a ticker (TP1, 1INCH, 1000PEPE) out.
+_NUMBER_RE = re.compile(
+    r'(?<![A-Za-z0-9.])'
+    r'(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d*\.\d+|\d+)'
+    r'(?:[eE]([+-]?\d+))?'
+)
+_PERCENT_RE = re.compile(r'(?<![\d.,])([+-]?)\s*(\d+(?:\.\d+)?)\s*%')
+# Parentheses holding commentary ("(2% risk, 10x)", "(24/7 market)") are not
+# prices. Bare numeric parentheses such as "(100)" and percentage-only ones
+# such as "(20%)" are kept.
+_PAREN_COMMENTARY_RE = re.compile(r'\([^)]*[A-Za-z/][^)]*\)')
+_PERCENT_SUFFIX_RE = re.compile(r'\s*%')
+_UNIT_SUFFIX_RE = re.compile(r'[A-Za-z]')  # 10x, 4h, 100k
+_SPACED_UNIT_RE = re.compile(r'\s+[xX]\b')
+# "1) 3450", "1. 3450", "1 - 3450" list indexes (not decimals like 0.025).
+_LIST_INDEX_RE = re.compile(r'(?:^|(?<=\s))\d+\s*[).\-]\s+')
+# "Targets (4):" / "Targets: (4)" — a count of targets, not a price.
+_COUNT_PREFIX_RE = re.compile(r'^\(\s*\d{1,2}\s*\)\s*:\s*')
+_COUNT_ONLY_RE = re.compile(r'^\(\s*\d{1,2}\s*\)$')
+# "Target 1 (TP1):" / "Target 2: 0.09" / "Entry 1 0.09222" — the number right
+# after a label is an ordinal or count, never a price. A decimal ("Entry 12.5")
+# and a bare number at end of line ("Target 24") are left alone.
+_ORDINAL_AFTER_LABEL_RE = re.compile(r'\s*#?\d{1,2}(?=\s*[\(\):\-=]|\s+\d*\.\d)')
 
 
 def build_keyword_pattern(words: Sequence[str]) -> str:
@@ -132,8 +175,223 @@ DEFAULT_RULES = ParserRules()
 
 
 def _extract_nums(raw: str) -> list[float]:
-    return [float(x) for x in re.findall(r'\$?\s*(\d+\.\d+|\d+)', raw)]
+    """Every positive price in `raw`, ignoring percentages, leverage/timeframe suffixes,
+    ticker digits and parenthetical commentary."""
+    raw = _PAREN_COMMENTARY_RE.sub(" ", raw)
+    nums: list[float] = []
+    for match in _NUMBER_RE.finditer(raw):
+        tail = raw[match.end():]
+        if _PERCENT_SUFFIX_RE.match(tail) or _UNIT_SUFFIX_RE.match(tail) or _SPACED_UNIT_RE.match(tail):
+            continue
+        try:
+            value = float(match.group(0).replace(",", ""))
+        except ValueError:
+            continue
+        if math.isfinite(value) and value > 0:
+            nums.append(value)
+    return nums
 
+
+def _percent_specs(raw: str) -> list[tuple[float, Optional[str]]]:
+    """(percentage, hint) pairs. `hint` is "above"/"below" when the text or the sign says so."""
+    raw = _PAREN_COMMENTARY_RE.sub(" ", raw)
+    upper = raw.upper()
+    word_hint = "above" if re.search(r'\bABOVE\b', upper) else ("below" if re.search(r'\bBELOW\b', upper) else None)
+    specs: list[tuple[float, Optional[str]]] = []
+    for match in _PERCENT_RE.finditer(raw):
+        sign = match.group(1)
+        hint = "above" if sign == "+" else ("below" if sign == "-" else word_hint)
+        value = float(match.group(2))
+        if math.isfinite(value) and value > 0:
+            specs.append((value, hint))
+    return specs
+
+
+def _strip_list_indexes(text: str) -> str:
+    return _LIST_INDEX_RE.sub(" ", text)
+
+
+def _clean_value(value: str) -> str:
+    """Drop the colon after a label and an optional leading "(N):" target count."""
+    value = value.strip()
+    if value.startswith(":"):
+        value = value[1:].strip()
+    if value.endswith(":"):
+        value = value[:-1].strip()
+    return _COUNT_PREFIX_RE.sub("", value).strip()
+
+
+# ---------------------------------------------------------------------------
+# Label detection
+# ---------------------------------------------------------------------------
+
+def _classify_label(text: str, rules: ParserRules) -> Optional[str]:
+    """target > stop-loss > entry, so "TARGET PRICE" is a target, not an entry."""
+    if re.search(rules.target_pattern, text) or _TP_LABEL_RE.search(text):
+        return "target"
+    if re.search(rules.stoploss_pattern, text):
+        return "stoploss"
+    if re.search(rules.entry_pattern, text):
+        return "entry"
+    return None
+
+
+def _label_spans(line: str, rules: ParserRules) -> list[tuple[int, int, Optional[str]]]:
+    """(start, end, kind) for every label in `line`, left to right.
+
+    Overlapping matches are collapsed (the longest wins) and adjacent words such
+    as TARGET + PRICE are merged so the whole phrase is classified together.
+    """
+    found: list[list] = []
+    for kind, pattern in (
+        ("target", rules.target_pattern),
+        ("stoploss", rules.stoploss_pattern),
+        ("entry", rules.entry_pattern),
+    ):
+        for match in re.finditer(pattern, line):
+            found.append([match.start(), match.end(), kind])
+    for match in _TP_LABEL_RE.finditer(line):
+        found.append([match.start(), match.end(), "target"])
+
+    found.sort(key=lambda span: (span[0], -(span[1] - span[0])))
+    kept: list[list] = []
+    for span in found:
+        if any(span[0] < other[1] and span[1] > other[0] for other in kept):
+            continue
+        kept.append(span)
+
+    merged: list[list] = []
+    for span in kept:
+        if merged and re.fullmatch(r'[\s\-_]*', line[merged[-1][1]:span[0]]):
+            start = merged[-1][0]
+            end = span[1]
+            merged[-1] = [start, end, _classify_label(line[start:end], rules)]
+        else:
+            merged.append(span)
+    return [(start, end, kind) for start, end, kind in merged]
+
+
+def _line_segments(line: str, rules: ParserRules) -> list[tuple[str, str]]:
+    """The labelled segments of one line as (kind, value), in order.
+
+    A keyword only counts as a label when it is followed by a colon, by a value,
+    or is the whole line (a block header such as "Targets"). This keeps the word
+    "entry" in ordinary commentary from being treated as a label.
+    """
+    spans = _label_spans(line, rules)
+    if not spans:
+        return []
+
+    kept: list[tuple[int, int, str]] = []
+    for index, (start, end, kind) in enumerate(spans):
+        next_start = spans[index + 1][0] if index + 1 < len(spans) else len(line)
+        ordinal = _ORDINAL_AFTER_LABEL_RE.match(line, end) if kind is not None else None
+        if ordinal and ordinal.end() <= next_start:
+            end = ordinal.end()
+        between = line[end:next_start]
+        has_colon = between.lstrip().startswith(":")
+        has_value = bool(_extract_nums(between)) or bool(_percent_specs(between))
+        label_only = not line[:start].strip() and not line[end:].strip()
+        if kind is not None and (has_colon or has_value or label_only or ordinal is not None):
+            kept.append((start, end, kind))
+
+    segments: list[tuple[str, str]] = []
+    for index, (start, end, kind) in enumerate(kept):
+        next_start = kept[index + 1][0] if index + 1 < len(kept) else len(line)
+        segments.append((kind, _clean_value(line[end:next_start])))
+    return segments
+
+
+# ---------------------------------------------------------------------------
+# Symbol detection
+# ---------------------------------------------------------------------------
+
+def _pair_matches(text: str) -> list[tuple[int, str, str]]:
+    """(position, base, quote) of every explicit pair in `text`, left to right."""
+    patterns = (
+        re.compile(r'#?([A-Z0-9]{2,15})[ \t]*/[ \t]*(USDT|USD)\b'),
+        re.compile(r'#?([A-Z0-9]{2,15})(USDT|USD)\b'),
+        re.compile(r'#?([A-Z]{2,15})[ \t]+(USDT|USD)\b'),
+    )
+    matches: list[tuple[int, str, str]] = []
+    for pattern in patterns:
+        for match in pattern.finditer(text):
+            base = match.group(1)
+            if base.isdigit() or base in {"USDT", "USD"}:
+                continue
+            matches.append((match.start(), base, match.group(2)))
+    matches.sort(key=lambda match: match[0])
+    return matches
+
+
+def _fallback_symbol(lines: Sequence[str], rules: ParserRules) -> Optional[str]:
+    """The ticker nearest the direction word (or the first useful token of the
+    first line), used only when the message has no explicit trading pair."""
+    if not lines:
+        return None
+
+    direction_index = next((index for index, line in enumerate(lines) if _DIRECTION_RE.search(line)), None)
+    candidates = [direction_index] if direction_index is not None else []
+    if 0 not in candidates:
+        candidates.append(0)
+
+    for index in candidates:
+        line = lines[index]
+        tokens = [
+            token for token in re.finditer(r'[A-Z0-9]{2,15}', line)
+            if token.group() not in rules.skip_tokens
+            and not token.group().isdigit()
+            and token.group() not in {"USDT", "USD"}
+            and not (token.group().endswith(("USDT", "USD")) and len(token.group()) > 4)
+        ]
+        if not tokens:
+            continue
+        direction = _DIRECTION_RE.search(line)
+        if direction:
+            before = [token for token in tokens if token.end() <= direction.start()]
+            if before:
+                return max(before, key=lambda token: token.end()).group()
+            after = [token for token in tokens if token.start() >= direction.end()]
+            if after:
+                return min(after, key=lambda token: token.start()).group()
+        return tokens[0].group()
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Level helpers
+# ---------------------------------------------------------------------------
+
+def _record_entries(
+    nums: Sequence[float], entry: Optional[float], entry_candidates: list[float], direction: str
+) -> float:
+    entry_candidates.extend(nums)
+    all_entries = ([entry] if entry is not None else []) + list(nums)
+    return max(all_entries) if direction == "BUY" else min(all_entries)
+
+
+def _percent_price(entry: float, percent: float, direction: str, hint: Optional[str], *, is_stoploss: bool) -> float:
+    factor = percent / 100.0
+    if is_stoploss:
+        if hint == "above":
+            return entry * (1 + factor)
+        if hint == "below":
+            return entry * (1 - factor)
+        return entry * (1 - factor) if direction == "BUY" else entry * (1 + factor)
+    if hint == "above":
+        return entry * (1 + factor)
+    if hint == "below":
+        return entry * (1 - factor)
+    return entry * (1 + factor) if direction == "BUY" else entry * (1 - factor)
+
+
+def _fmt(value: float) -> str:
+    return format(value, "f").rstrip("0").rstrip(".") if value else "0"
+
+
+# ---------------------------------------------------------------------------
+# Public entry point
+# ---------------------------------------------------------------------------
 
 def parse_signal(
     text: str,
@@ -176,23 +434,29 @@ def _parse_signal_inner(
 
     text = text.replace("\u00a0", " ")
     text = re.sub(r'\d+\ufe0f?\u20e3', '', text)
+    # Strip accents instead of deleting them: PREÇO -> PRECO, AÇÃO -> ACAO.
+    text = unicodedata.normalize("NFKD", text)
+    text = re.sub(r'[\u0300-\u036f]', '', text)
     text = re.sub(r'[^\x00-\x7F]+', ' ', text)
     text_upper = text.upper()
-    lines = [l.strip() for l in text_upper.splitlines() if l.strip()]
+    lines = [line.strip() for line in text_upper.splitlines() if line.strip()]
 
-    symbol_match = re.search(r'#?([A-Z0-9]{1,15})\s*/?\s*(USDT|USD)\b', text_upper)
-
-    if not symbol_match:
-        first_line = lines[0] if lines else ""
-        tokens = re.findall(r'[A-Z0-9]{2,15}', first_line)
-        symbol_token = next((t for t in tokens if t not in rules.skip_tokens), None)
+    pairs = _pair_matches(text_upper)
+    bases = {base for _, base, _ in pairs}
+    if len(bases) > 1:
+        return ParseResult.fail(
+            MULTIPLE_SIGNALS,
+            "The message contains more than one trading pair; one Telegram message must describe exactly one signal.",
+        )
+    if pairs:
+        symbol = pairs[0][1] + "USDT"
+    else:
+        symbol_token = _fallback_symbol(lines, rules)
         if not symbol_token:
             return ParseResult.fail(NO_SYMBOL, "No valid trading symbol found in the message.")
         symbol = symbol_token + "USDT"
-    else:
-        symbol = symbol_match.group(1) + "USDT"
 
-    direction_match = re.search(r'\b(LONG|BUY|SHORT|SELL|LONGING|SHORTING)\b', text_upper)
+    direction_match = _DIRECTION_RE.search(text_upper)
     if not direction_match:
         return ParseResult.fail(NO_DIRECTION, "No valid trade direction (LONG/SHORT/BUY/SELL) found.")
 
@@ -200,69 +464,67 @@ def _parse_signal_inner(
 
     entry: Optional[float] = None
     entry_candidates: list[float] = []
-    targets: list[float] = []
+    target_specs: list[tuple[str, float, Optional[str]]] = []  # ("price"|"pct", value, hint)
     stoploss: Optional[float] = None
+    stoploss_spec: Optional[tuple[float, Optional[str]]] = None
+    in_entry_block = False
     in_targets_block = False
 
     for line in lines:
-        if re.search(rules.entry_pattern, line):
-            if ':' not in line:
-                raw = re.sub(rules.entry_pattern, '', line)
-                nums = _extract_nums(raw)
+        segments = _line_segments(line, rules)
+        if segments:
+            for kind, value in segments:
+                cleaned = _strip_list_indexes(value)
+                if kind == "target" and _COUNT_ONLY_RE.match(cleaned.strip()):
+                    cleaned = ""
+                nums = _extract_nums(cleaned)
+                if kind == "entry":
+                    if nums:
+                        entry = _record_entries(nums, entry, entry_candidates, direction)
+                        in_entry_block = False
+                    else:
+                        in_entry_block = True
+                    in_targets_block = False
+                elif kind == "target":
+                    if nums:
+                        target_specs.extend(("price", number, None) for number in nums)
+                    else:
+                        target_specs.extend(("pct", percent, hint) for percent, hint in _percent_specs(cleaned))
+                    in_entry_block = False
+                    in_targets_block = True
+                else:  # stoploss
+                    if nums:
+                        stoploss = nums[0]
+                        stoploss_spec = None
+                    else:
+                        percents = _percent_specs(cleaned)
+                        if percents:
+                            stoploss_spec = percents[0]
+                            stoploss = None
+                    in_entry_block = False
+                    in_targets_block = False
+        else:
+            cleaned = _strip_list_indexes(line)
+            if in_targets_block and re.match(r'^[$\d]', line):
+                nums = _extract_nums(cleaned)
                 if nums:
-                    entry_candidates.extend(nums)
-                    all_entries = ([entry] if entry is not None else []) + nums
-                    entry = max(all_entries) if direction == "BUY" else min(all_entries)
-            else:
-                raw = line.split(":", 1)[-1]
-                nums = _extract_nums(raw)
+                    target_specs.extend(("price", number, None) for number in nums)
+                else:
+                    percents = _percent_specs(cleaned)
+                    if percents:
+                        target_specs.extend(("pct", percent, hint) for percent, hint in percents)
+                    else:
+                        in_targets_block = False
+            elif in_entry_block:
+                nums = _extract_nums(cleaned)
                 if nums:
-                    entry_candidates.extend(nums)
-                    all_entries = ([entry] if entry is not None else []) + nums
-                    entry = max(all_entries) if direction == "BUY" else min(all_entries)
-
-        elif re.search(rules.target_pattern, line):
-            raw = line.split(":", 1)[-1] if ':' in line else re.sub(rules.target_pattern, '', line)
-            raw = re.sub(r'(?<=\d)(TP)', r' \1', raw, flags=re.IGNORECASE)
-            raw = re.sub(r'\bTP\s*\d+\b', '', raw, flags=re.IGNORECASE)
-            nums = _extract_nums(raw)
-            if nums:
-                targets.extend(nums)
-            in_targets_block = True
-
-        elif re.match(r'^TP\s*\d+', line):
-            raw = re.sub(r'^TP\s*\d+\s*[:\u2192\-]?\s*', '', line, flags=re.IGNORECASE)
-            nums = _extract_nums(raw)
-            if nums:
-                targets.extend(nums)
-            in_targets_block = True
-
-        elif in_targets_block and re.match(r'^\d+(?:\s*\)|\s*[.\-]\s+)\s*\d', line):
-            # list index: "1) 3450", "1. 3450", "1 - 3450". A bare "0.025" is a decimal, not an index.
-            raw = re.sub(r'^\d+(?:\s*\)|\s*[.\-]\s+)\s*', '', line)
-            nums = _extract_nums(raw)
-            if nums:
-                targets.extend(nums)
-
-        elif in_targets_block and re.match(r'^[$\d]', line):
-            nums = _extract_nums(line)
-            if nums:
-                targets.extend(nums)
-            else:
-                in_targets_block = False
-
-        elif re.search(rules.stoploss_pattern, line):
-            in_targets_block = False
-            raw = line.split(":", 1)[-1]
-            nums = _extract_nums(raw)
-            if nums:
-                stoploss = nums[0]
+                    entry = _record_entries(nums, entry, entry_candidates, direction)
+                else:
+                    in_entry_block = False
 
     if entry is None:
         for line in lines:
-            if re.search(r'\b(LONG|SHORT|BUY|SELL|LONGING|SHORTING)\b', line) and re.search(
-                r'\b(BELOW|ABOVE|AT|AROUND|NEAR)\b', line
-            ):
+            if _DIRECTION_RE.search(line) and re.search(r'\b(BELOW|ABOVE|AT|AROUND|NEAR)\b', line):
                 nums = _extract_nums(line)
                 if nums:
                     entry = nums[0]
@@ -270,8 +532,8 @@ def _parse_signal_inner(
 
     if entry is None:
         for line in lines:
-            if re.search(r'\b(LONG|SHORT|BUY|SELL|LONGING|SHORTING)\b', line):
-                raw = re.sub(r'\b(LONG|SHORT|BUY|SELL|LONGING|SHORTING)\b', '', line)
+            if _DIRECTION_RE.search(line):
+                raw = _DIRECTION_RE.sub('', line)
                 raw = re.sub(r'#?[A-Z]{2,15}\s*/?\s*(USDT|USD)?', '', raw)
                 nums = _extract_nums(raw)
                 if nums:
@@ -280,10 +542,44 @@ def _parse_signal_inner(
 
     if entry is None:
         return ParseResult.fail(NO_ENTRY, "No entry price could be extracted.")
+
+    if stoploss is None and stoploss_spec is not None:
+        percent, hint = stoploss_spec
+        stoploss = _percent_price(entry, percent, direction, hint, is_stoploss=True)
+
+    targets: list[float] = []
+    for kind, value, hint in target_specs:
+        if kind == "pct":
+            targets.append(_percent_price(entry, value, direction, hint, is_stoploss=False))
+        else:
+            targets.append(value)
+
     if not targets:
         return ParseResult.fail(NO_TARGET, "No take-profit targets could be extracted.")
     if stoploss is None and require_stoploss:
         return ParseResult.fail(NO_STOPLOSS, "No stop-loss value could be extracted.")
+
+    levels = [entry, *targets] + ([stoploss] if stoploss is not None else [])
+    if any(value <= 0 or not math.isfinite(value) for value in levels):
+        return ParseResult.fail(INVALID_LEVELS, "Entry, stop-loss and targets must be positive numbers.")
+
+    # The first two targets are what the trade planner uses; they must move away
+    # from the entry in the signal's direction. Later targets are truncated by
+    # the planner when they do not, so they are not rejected here.
+    if direction == "BUY":
+        invalid = (stoploss is not None and stoploss >= entry) or any(target <= entry for target in targets)
+    else:
+        invalid = (stoploss is not None and stoploss <= entry) or any(target >= entry for target in targets)
+    if not invalid and len(targets) > 1:
+        invalid = targets[1] <= targets[0] if direction == "BUY" else targets[1] >= targets[0]
+    if invalid:
+        expected = "SL < entry < TP1 < TP2" if direction == "BUY" else "SL > entry > TP1 > TP2"
+        stoploss_text = _fmt(stoploss) if stoploss is not None else "none"
+        return ParseResult.fail(
+            INVALID_LEVELS,
+            f"{direction} requires {expected}; got SL={stoploss_text}, entry={_fmt(entry)}, "
+            f"targets=[{', '.join(_fmt(target) for target in targets)}].",
+        )
 
     return ParseResult.ok(
         {

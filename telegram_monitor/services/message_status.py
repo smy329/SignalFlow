@@ -16,6 +16,8 @@ _REASONS = {
     "NO_ENTRY": "No entry price found",
     "NO_TARGET": "No take-profit found",
     "NO_STOPLOSS": "No stop-loss found",
+    "INVALID_LEVELS": "Invalid price levels",
+    "MULTIPLE_SIGNALS": "Multiple signals in one message",
     "PARSER_ERROR": "Parser error",
 }
 _DUPLICATE = "DUPLICATE_SIGNAL"

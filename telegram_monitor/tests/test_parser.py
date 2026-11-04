@@ -7,6 +7,8 @@ from pathlib import Path
 from unittest import TestCase
 
 from telegram_monitor.services.signal_parser import (
+    INVALID_LEVELS,
+    MULTIPLE_SIGNALS,
     NO_DIRECTION,
     NO_ENTRY,
     NO_STOPLOSS,
@@ -19,6 +21,8 @@ from telegram_monitor.services.signal_parser import (
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
 DEFAULT_KWARGS = {"leverage": 20, "margin": None, "margin_type": "ISOLATED"}
+
+PAD = "\nThis setup is confirmed with strong volume and clean market structure on the daily chart."
 
 
 def _parse(text, channel=""):
@@ -129,6 +133,33 @@ class ValidSignalTests(TestCase):
         self.assertTrue(result.success, result.error_message)
         self.assertEqual(result.signal["entry"], 0.40)  # SELL -> min of entry candidates
 
+    def test_entry_block_with_numbered_prices(self):
+        # Real-world layout: "Entry :" is followed by a numbered list instead of prices on the same line.
+        text = (
+            "💎 #Free Signal\n\n"
+            "🟢 Long\n\n"
+            " #BCH/USDT\n\n"
+            "Entry : \n\n"
+            "1) 274.84\n"
+            "2) 266.59\n\n"
+            "Targets:\n\n"
+            "1) 276.41\n"
+            "2) 282.15\n"
+            "3) 287.90\n"
+            "4) 293.64\n\n"
+            "🛑 Stop  : 257.52\n\n"
+            "Leverage: 10x (isolated) "
+        )
+        result = _parse(text)
+        self.assertTrue(result.success, result.error_message)
+        signal = result.signal
+        self.assertEqual(signal["symbol"], "BCHUSDT")
+        self.assertEqual(signal["direction"], "BUY")
+        self.assertEqual(signal["entry"], 274.84)
+        self.assertEqual(signal["entries"], [266.59, 274.84])
+        self.assertEqual(signal["targets"], [276.41, 282.15, 287.90, 293.64])
+        self.assertEqual(signal["stoploss"], 257.52)
+
     def test_target_block_with_take_profit_keyword(self):
         text = (
             "LINKUSDT LONG breaking out of a multi week accumulation range with strong volume "
@@ -168,6 +199,173 @@ class ValidSignalTests(TestCase):
         result = _parse(text)
         self.assertTrue(result.success, result.error_message)
         self.assertEqual(result.signal["entry"], 6.50)
+
+
+class HardenedFormatTests(TestCase):
+    """Real-world number formats and labels that share a line."""
+
+    def test_thousands_separators(self):
+        text = "#BTC/USDT LONG" + PAD + "\nEntry: 100,000\nTP1: 101,000\nTP2: 102,500\nSL: 98,000"
+        result = _parse(text)
+        self.assertTrue(result.success, result.error_message)
+        self.assertEqual(result.signal["entry"], 100000.0)
+        self.assertEqual(result.signal["targets"], [101000.0, 102500.0])
+        self.assertEqual(result.signal["stoploss"], 98000.0)
+
+    def test_leading_dot_decimals(self):
+        text = "#PEPE/USDT LONG" + PAD + "\nEntry: .0000091\nTP1: .0000095\nSL: .0000085"
+        result = _parse(text)
+        self.assertTrue(result.success, result.error_message)
+        self.assertEqual(result.signal["entry"], 9.1e-6)
+        self.assertEqual(result.signal["targets"], [9.5e-6])
+        self.assertEqual(result.signal["stoploss"], 8.5e-6)
+
+    def test_scientific_notation(self):
+        text = "#PEPE/USDT LONG" + PAD + "\nEntry: 9.1e-6\nTP1: 9.5e-6\nSL: 8.5e-6"
+        result = _parse(text)
+        self.assertTrue(result.success, result.error_message)
+        self.assertEqual(result.signal["entry"], 9.1e-6)
+        self.assertEqual(result.signal["targets"], [9.5e-6])
+        self.assertEqual(result.signal["stoploss"], 8.5e-6)
+
+    def test_extra_numbers_on_an_entry_line_are_not_prices(self):
+        text = "#SOL/USDT SHORT" + PAD + "\nEntry: 150 (2% risk, 10x)\nTP1: 145\nSL: 155"
+        result = _parse(text)
+        self.assertTrue(result.success, result.error_message)
+        self.assertEqual(result.signal["entry"], 150.0)
+        self.assertEqual(result.signal["entries"], [150.0])
+        self.assertEqual(result.signal["stoploss"], 155.0)
+
+    def test_commentary_numbers_in_parentheses_are_ignored(self):
+        text = "#SOL/USDT SHORT" + PAD + "\nEntry: 150 (24/7 market, 2% risk)\nTP1: 145\nSL: 155"
+        result = _parse(text)
+        self.assertTrue(result.success, result.error_message)
+        self.assertEqual(result.signal["entry"], 150.0)
+
+    def test_target_indexes_on_the_label_line(self):
+        text = "#ETH/USDT SHORT" + PAD + "\nEntry: 3500\nTargets: 1) 3450 2) 3400 3) 3350\nSL: 3600"
+        result = _parse(text)
+        self.assertTrue(result.success, result.error_message)
+        self.assertEqual(result.signal["targets"], [3450.0, 3400.0, 3350.0])
+
+    def test_ordinal_after_target_label_is_not_a_target(self):
+        text = (
+            "POL/USDT SHORT" + PAD + "\n"
+            "Entry: 0.09222\n"
+            "Target 1 (TP1): 0.09162\n"
+            "Target 2 (TP2): 0.09065\n"
+            "Target 3 (TP3): 0.08927\n"
+            "Target 4 (TP4): 0.08687\n"
+            "Target 5 (TP5): 0.08558\n"
+            "Stop Loss (SL): 0.09683"
+        )
+        result = _parse(text)
+        self.assertTrue(result.success, result.error_message)
+        self.assertEqual(
+            result.signal["targets"], [0.09162, 0.09065, 0.08927, 0.08687, 0.08558]
+        )
+        self.assertEqual(result.signal["stoploss"], 0.09683)
+
+    def test_ordinal_after_target_label_with_a_colon(self):
+        text = "#ETH/USDT LONG" + PAD + "\nEntry: 2000\nTarget 1: 2100\nTarget 2: 2200\nSL: 1900"
+        result = _parse(text)
+        self.assertTrue(result.success, result.error_message)
+        self.assertEqual(result.signal["targets"], [2100.0, 2200.0])
+
+    def test_ordinal_target_header_still_opens_a_block(self):
+        text = "#BTC/USDT SHORT" + PAD + "\nEntry: 100\nTarget 1 (TP1):\n90\nTarget 2 (TP2):\n80\nSL: 110"
+        result = _parse(text)
+        self.assertTrue(result.success, result.error_message)
+        self.assertEqual(result.signal["targets"], [90.0, 80.0])
+
+    def test_a_bare_target_number_at_the_end_of_a_line_is_still_a_price(self):
+        text = "#SOL/USDT LONG" + PAD + "\nEntry: 20\nTarget 24\nSL: 19"
+        result = _parse(text)
+        self.assertTrue(result.success, result.error_message)
+        self.assertEqual(result.signal["targets"], [24.0])
+
+    def test_target_count_in_parentheses_is_not_a_target(self):
+        text = "#BTC/USDT LONG" + PAD + "\nEntry: 100000\nTargets (2):\n101000\n102000\nSL: 98000"
+        result = _parse(text)
+        self.assertTrue(result.success, result.error_message)
+        self.assertEqual(result.signal["targets"], [101000.0, 102000.0])
+
+    def test_target_price_label_is_a_target(self):
+        text = "#ETH/USDT LONG" + PAD + "\nEntry: 2000\nTarget Price: 2100 2200\nSL: 1900"
+        result = _parse(text)
+        self.assertTrue(result.success, result.error_message)
+        self.assertEqual(result.signal["entry"], 2000.0)
+        self.assertEqual(result.signal["targets"], [2100.0, 2200.0])
+
+    def test_labels_can_share_one_line_with_pipes(self):
+        text = "#BTC/USDT LONG" + PAD + "\nEntry: 100000 | TP: 101000 | SL: 98000"
+        result = _parse(text)
+        self.assertTrue(result.success, result.error_message)
+        self.assertEqual((result.signal["entry"], result.signal["targets"], result.signal["stoploss"]),
+                         (100000.0, [101000.0], 98000.0))
+
+    def test_labels_can_share_one_line_with_spaces(self):
+        text = "#BTC/USDT LONG" + PAD + "\nEntry: 100000 TP: 101000 SL: 98000"
+        result = _parse(text)
+        self.assertTrue(result.success, result.error_message)
+        self.assertEqual((result.signal["entry"], result.signal["targets"], result.signal["stoploss"]),
+                         (100000.0, [101000.0], 98000.0))
+
+    def test_take_profit_and_stop_loss_on_one_line(self):
+        text = "#BTC/USDT LONG" + PAD + "\nEntry: 100000\nTP1: 101000 SL: 98000"
+        result = _parse(text)
+        self.assertTrue(result.success, result.error_message)
+        self.assertEqual(result.signal["targets"], [101000.0])
+        self.assertEqual(result.signal["stoploss"], 98000.0)
+
+    def test_entry_block_with_bare_prices(self):
+        text = "#BTC/USDT LONG" + PAD + "\nEntry:\n100000\n101000\nTargets:\n102000\nSL: 98000"
+        result = _parse(text)
+        self.assertTrue(result.success, result.error_message)
+        self.assertEqual(result.signal["entry"], 101000.0)
+        self.assertEqual(result.signal["entries"], [100000.0, 101000.0])
+
+    def test_percentage_stop_loss(self):
+        text = "#BTC/USDT LONG" + PAD + "\nEntry: 100000\nTP1: 101000\nSL: 2% below entry"
+        result = _parse(text)
+        self.assertTrue(result.success, result.error_message)
+        self.assertEqual(result.signal["stoploss"], 98000.0)
+
+    def test_percentage_targets_follow_the_direction(self):
+        long_text = "#BTC/USDT LONG" + PAD + "\nEntry: 100\nTP: 20%\nSL: 90"
+        short_text = "#BTC/USDT SHORT" + PAD + "\nEntry: 100\nTP: 20%\nSL: 110"
+        long_result = _parse(long_text)
+        short_result = _parse(short_text)
+        self.assertTrue(long_result.success, long_result.error_message)
+        self.assertTrue(short_result.success, short_result.error_message)
+        self.assertEqual(long_result.signal["targets"], [120.0])
+        self.assertEqual(short_result.signal["targets"], [80.0])
+
+    def test_profit_percentage_is_not_a_price(self):
+        text = "#XRP/USDT LONG" + PAD + "\nEntry: 0.55\nProfit: 20%\nSL: 0.50"
+        result = _parse(text)
+        self.assertTrue(result.success, result.error_message)
+        self.assertAlmostEqual(result.signal["targets"][0], 0.66)
+
+    def test_accented_keywords_are_normalised(self):
+        text = "#BTC/USDT LONG" + PAD + "\nPREÇO: 100000\nALVO: 101000 102000\nPERDA: 98000"
+        result = _parse(text)
+        self.assertTrue(result.success, result.error_message)
+        self.assertEqual(result.signal["entry"], 100000.0)
+        self.assertEqual(result.signal["targets"], [101000.0, 102000.0])
+        self.assertEqual(result.signal["stoploss"], 98000.0)
+
+    def test_a_usdt_amount_is_not_a_trading_pair(self):
+        text = "BTC LONG" + PAD + "\nGet 500 USDT bonus today\nEntry: 60000\nTP1: 61000\nSL: 59000"
+        result = _parse(text)
+        self.assertTrue(result.success, result.error_message)
+        self.assertEqual(result.signal["symbol"], "BTCUSDT")
+
+    def test_symbol_falls_back_to_the_ticker_next_to_the_direction(self):
+        text = "BREAKING: DOGE LONG setup" + PAD + "\nEntry: 0.15\nTP1: 0.16\nSL: 0.14"
+        result = _parse(text)
+        self.assertTrue(result.success, result.error_message)
+        self.assertEqual(result.signal["symbol"], "DOGEUSDT")
 
 
 class InvalidSignalTests(TestCase):
@@ -221,6 +419,34 @@ class InvalidSignalTests(TestCase):
         result = _parse(text)
         self.assertFalse(result.success)
         self.assertEqual(result.error_code, NO_STOPLOSS)
+
+    def test_target_on_the_wrong_side_of_the_entry_is_invalid(self):
+        text = "BTCUSDT LONG" + PAD + "\nEntry: 100000\nTP1: 99000\nSL: 98000"
+        result = _parse(text)
+        self.assertFalse(result.success)
+        self.assertEqual(result.error_code, INVALID_LEVELS)
+
+    def test_stop_loss_on_the_wrong_side_of_the_entry_is_invalid(self):
+        text = "BTCUSDT SHORT" + PAD + "\nEntry: 100000\nTP1: 99000\nSL: 99000"
+        result = _parse(text)
+        self.assertFalse(result.success)
+        self.assertEqual(result.error_code, INVALID_LEVELS)
+
+    def test_percentage_target_on_the_wrong_side_is_invalid(self):
+        text = "BTCUSDT LONG" + PAD + "\nEntry: 100\nTP: 20% below\nSL: 90"
+        result = _parse(text)
+        self.assertFalse(result.success)
+        self.assertEqual(result.error_code, INVALID_LEVELS)
+
+    def test_more_than_one_pair_is_rejected(self):
+        text = (
+            "#BTC/USDT LONG" + PAD + "\n"
+            "#ETH/USDT SHORT also looks ready today\n"
+            "Entry: 100000\nTP1: 101000\nSL: 98000"
+        )
+        result = _parse(text)
+        self.assertFalse(result.success)
+        self.assertEqual(result.error_code, MULTIPLE_SIGNALS)
 
     def test_unrelated_telegram_message(self):
         text = _load_fixture("invalid", "unrelated_chatter.txt")

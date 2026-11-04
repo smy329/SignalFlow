@@ -14,6 +14,8 @@ class DescribeTests(SimpleTestCase):
         self.assertEqual(describe("FAILED", "NO_ENTRY"), ("Not a signal", "No entry price found"))
         self.assertEqual(describe("FAILED", "NO_TARGET"), ("Not a signal", "No take-profit found"))
         self.assertEqual(describe("FAILED", "NO_STOPLOSS"), ("Not a signal", "No stop-loss found"))
+        self.assertEqual(describe("FAILED", "INVALID_LEVELS"), ("Not a signal", "Invalid price levels"))
+        self.assertEqual(describe("FAILED", "MULTIPLE_SIGNALS"), ("Not a signal", "Multiple signals in one message"))
         self.assertEqual(describe("ERROR", "PARSER_ERROR"), ("Not a signal", "Parser error"))
 
     def test_duplicate_is_a_signal_that_was_ignored(self):

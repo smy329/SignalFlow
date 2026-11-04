@@ -148,7 +148,7 @@ class DuplicateDetectionTests(TestCase):
         first = make_message(self.source_a, telegram_message_id=1)
         signal_service.process_message(first)
 
-        different_entry_text = VALID_SIGNAL_TEXT.replace("100000", "999000")
+        different_entry_text = VALID_SIGNAL_TEXT.replace("100000", "99000")
         second = make_message(self.source_a, telegram_message_id=2, text=different_entry_text)
         signal = signal_service.process_message(second)
 
