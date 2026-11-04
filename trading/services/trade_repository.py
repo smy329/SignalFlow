@@ -10,7 +10,7 @@ from decimal import Decimal
 from typing import Optional
 
 from django.db import IntegrityError, transaction
-from django.db.models import Count, Q, Sum
+from django.db.models import Count, F, Q, Sum
 from django.utils import timezone
 
 from runtime_settings import service as runtime
@@ -30,6 +30,8 @@ ST_CLOSED = Trade.Status.CLOSED.value
 ST_CANCELLED = Trade.Status.CANCELLED.value
 ST_REJECTED = Trade.Status.REJECTED.value
 ST_FAILED = Trade.Status.FAILED.value
+# The Cancelled tab: every trade that never traded, whatever stopped it.
+UNTRADED_STATUSES = (ST_CANCELLED, ST_REJECTED, ST_FAILED)
 ENTRY_ROLE_VALUES = tuple(r.value for r in ENTRY_ROLES)
 
 
@@ -279,6 +281,11 @@ def reject_trade(trade_id: int, code: str, message: str) -> None:
     _finish(trade_id, ST_REJECTED, code, message)
 
 
+def cancel_trade(trade_id: int, code: str, message: str) -> None:
+    """Cancelled before any order was placed (e.g. the market had already reached TP1 / the stop-loss)."""
+    _finish(trade_id, ST_CANCELLED, code, message, closed_at=timezone.now())
+
+
 def fail_trade(trade_id: int, code: str, message: str) -> None:
     _finish(trade_id, ST_FAILED, code, message, closed_at=timezone.now())
 
@@ -355,22 +362,28 @@ def update_paper_cursors(symbol: str, cursor: Optional[int]) -> None:
 # ---- reports (Positions / Pending / History / Sources pages) ------------------------
 
 
-def trade_rows(mode: Optional[str], status: str, limit: Optional[int] = None, manual: bool = False) -> list[dict]:
+def trade_rows(
+    mode: Optional[str], status: "str | tuple[str, ...]", limit: Optional[int] = None, manual: bool = False
+) -> list[dict]:
     """Plain rows for the trade tables of one mode. Closed rows only include trades whose
     position was actually opened; entries cancelled before filling are their own status.
+    `status` may be one status or a tuple of them (the Cancelled tab lists every trade that never
+    traded: cancelled, rejected and failed).
     `manual=False` leaves out trades placed from the Manual Trade page, `manual=True` returns only those
     (and `mode=None` then means both Real and Forward)."""
-    qs = Trade.objects.filter(status=status).select_related("signal").prefetch_related("orders")
+    statuses = (status,) if isinstance(status, str) else tuple(status)
+    qs = Trade.objects.filter(status__in=statuses).select_related("signal").prefetch_related("orders")
     if mode is not None:
         qs = qs.filter(mode=mode)
     qs = qs.filter(signal__source__telegram_id=MANUAL_TELEGRAM_ID) if manual else qs.exclude(signal__source__telegram_id=MANUAL_TELEGRAM_ID)
-    if status in (ST_CLOSED, ST_CANCELLED):
-        qs = qs.filter(opened_at__isnull=False) if status == ST_CLOSED else qs
-        qs = qs.order_by("-closed_at")
-    elif status == ST_OPEN:
+    if ST_CLOSED in statuses:
+        qs = qs.filter(opened_at__isnull=False)
+    if ST_OPEN in statuses:
         qs = qs.order_by("-opened_at")
-    else:
+    elif ST_PENDING in statuses:
         qs = qs.order_by("-placed_at")
+    else:  # never traded: newest end first (a rejected trade has no placed_at / closed_at)
+        qs = qs.order_by(F("closed_at").desc(nulls_last=True), "-updated_at")
     if limit:
         qs = qs[:limit]
 
@@ -396,6 +409,7 @@ def trade_rows(mode: Optional[str], status: str, limit: Optional[int] = None, ma
                 "targets": [Decimal(x) for x in t.targets],
                 "opened_at": t.opened_at,
                 "closed_at": t.closed_at,
+                "finished_at": t.closed_at or t.updated_at,  # a rejected trade never got a closed_at
                 "realized_pnl": t.realized_pnl,
                 "fees": t.fees_paid,
                 "entry_fills": [(o.executed_quantity, o.avg_fill_price or o.price) for o in orders if o.role in ENTRY_ROLE_VALUES],

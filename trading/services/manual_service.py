@@ -254,6 +254,9 @@ def outcome(signal_id: int) -> dict:
     if trade.status in (status.REJECTED, status.FAILED):
         return {**base, "state": "rejected" if trade.status == status.REJECTED else "failed",
                 "code": trade.reason_code, "message": trade.reason_message}
+    if trade.status == status.CANCELLED:  # the plan was never placed (e.g. price had already reached TP1)
+        return {**base, "state": "cancelled", "code": trade.reason_code, "message": trade.reason_message,
+                "label": trade.get_status_display()}
     tab = {status.OPEN: "positions", status.PENDING_ENTRY: "pending", status.CANCELLED: "cancelled"}.get(trade.status)
     return {
         **base, "state": "placed", "label": trade.get_status_display(), "tab": tab or "history",

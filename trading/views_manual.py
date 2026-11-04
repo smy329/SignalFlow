@@ -179,7 +179,7 @@ def pending_api(request):
 @login_required
 @require_GET
 def cancelled_api(request):
-    raw = repo.trade_rows(None, repo.ST_CANCELLED, limit=runtime.get("display.history_limit"), manual=True)
+    raw = repo.trade_rows(None, repo.UNTRADED_STATUSES, limit=runtime.get("display.history_limit"), manual=True)
     return _json(_tag(raw, report_service.cancelled_rows(raw)))
 
 

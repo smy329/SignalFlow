@@ -51,6 +51,7 @@ def _common(r: dict) -> dict[str, Any]:
         "opposite": bool(r.get("opposite")),  # a mirror-image trade of its signal
         "symbol": r["symbol"],
         "side": "LONG" if r["side"] == "BUY" else "SHORT",
+        "status": r.get("status"),
         "leverage": r["leverage"],
         "stoploss": _num(r["stoploss"]),
         "targets": [_num(t) for t in r["targets"]],
@@ -101,7 +102,8 @@ def pending_rows(rows: list[dict], prices: Mapping[str, Decimal]) -> list[dict]:
 
 
 def cancelled_rows(rows: list[dict]) -> list[dict]:
-    """Entries cancelled before they filled (e.g. price reached TP1 / SL first)."""
+    """Every trade that never traded: entries cancelled before they filled (e.g. price reached TP1 / SL
+    first), and signals rejected or failed before any order was placed."""
     return [
         {
             **_common(r),
@@ -109,7 +111,7 @@ def cancelled_rows(rows: list[dict]) -> list[dict]:
             "entry_prices": [_num(p) for p in _planned_prices(r)],
             "margin": _num(_margin(r["quantity"], _planned_price(r), r["leverage"]), "pnl"),
             "result": r["reason"] or None,
-            "closed_at": _iso(r["closed_at"]),
+            "closed_at": _iso(r.get("finished_at") or r["closed_at"]),
         }
         for r in rows
     ]

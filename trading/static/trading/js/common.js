@@ -39,6 +39,21 @@ window.TradingUI = (function () {
     ENTRY_EXPIRED: "Entry order expired",
     CLOSED_MANUALLY: "Closed manually",
     REVERSED: "Closed by reversal signal",
+    ACTIVE_TRADE_EXISTS: "Already an active live trade on this coin",
+    EXPOSURE_ON_SYMBOL: "The account already has a position or orders on this coin",
+    REVERSAL_IGNORED: "Opposite signal ignored (the existing trade carries on)",
+    PREPARE_FAILED: "The symbol could not be prepared on the exchange",
+    ORDER_PLACEMENT_FAILED: "An order could not be placed; nothing was left open",
+    ORDER_PLACEMENT_FAILED_UNSAFE: "Order placement failed; check the account",
+    INTERRUPTED: "Interrupted by a restart",
+    INTERRUPTED_UNSAFE: "Interrupted by a restart; check the account",
+    INVALID_LEVELS: "Stop-loss or take-profits are on the wrong side of the entry",
+    INVALID_INPUT: "The signal is missing a usable entry, stop-loss or target",
+    MISSING_MARGIN: "The margin setting is not a positive value",
+    BELOW_MIN_QTY: "The size is below the exchange minimum",
+    ABOVE_MAX_QTY: "The size is above the exchange maximum",
+    BELOW_MIN_NOTIONAL: "The order value is below the exchange minimum",
+    SYMBOL_NOT_TRADABLE: "The coin is not tradable on Binance Futures",
   };
 
   function humanize(code) {
@@ -92,6 +107,18 @@ window.TradingUI = (function () {
     },
     side: { label: "Side", weight: 8, cell: (r) => sideBadge(r.side) },
     symbol: { label: "Symbol", weight: 11, cell: (r) => el("span", "font-semibold", r.symbol) },
+    state: {
+      label: "State", weight: 9,
+      cell: (r) => {
+        const styles = {
+          CANCELLED: ["Cancelled", "bg-slate-100 text-slate-700"],
+          REJECTED: ["Rejected", "bg-rose-50 text-rose-700"],
+          FAILED: ["Failed", "bg-red-50 text-red-700"],
+        };
+        const [text, cls] = styles[r.status] || [humanize(r.status), "bg-slate-100 text-slate-600"];
+        return el("span", "text-xs font-semibold px-2 py-0.5 rounded whitespace-nowrap " + cls, text);
+      },
+    },
     entry: {
       label: "Entry Price",
       weight: 10,
@@ -144,7 +171,7 @@ window.TradingUI = (function () {
         body.appendChild(line);
       });
       empty.classList.toggle("hidden", rows.length > 0);
-      if (count) count.textContent = rows.length ? "(" + rows.length + ")" : "";
+      if (count) count.textContent = "(" + rows.length + ")";
     }
 
     function setNote(message) {

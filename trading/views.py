@@ -134,7 +134,7 @@ def history_api(request, scope: str):
 @require_GET
 def cancelled_api(request, scope: str):
     sc = _scope(scope)
-    rows = report_service.cancelled_rows(repo.trade_rows(sc.trade_mode, repo.ST_CANCELLED, limit=runtime.get("display.history_limit")))
+    rows = report_service.cancelled_rows(repo.trade_rows(sc.trade_mode, repo.UNTRADED_STATUSES, limit=runtime.get("display.history_limit")))
     return JsonResponse({"enabled": _enabled(sc), "rows": rows, "message": "" if _enabled(sc) else _off_message(sc)})
 
 

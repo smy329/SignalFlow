@@ -35,6 +35,7 @@ CANDLE_INTERVAL = "1m"
 _KNOWN_STATUSES = {base.NEW, base.PARTIALLY_FILLED, base.FILLED, base.CANCELED, base.EXPIRED, base.REJECTED}
 _ALGO_DEAD = {"CANCELED": base.CANCELED, "CANCELLED": base.CANCELED, "EXPIRED": base.EXPIRED, "REJECTED": base.REJECTED}
 _NO_NEED_TO_CHANGE_MARGIN_TYPE = -4046
+_PERMISSION_DENIED = -2015
 _TRADE_WINDOW_EXCEEDED = -4166
 _TOO_MANY_REQUESTS = -1003
 
@@ -51,6 +52,14 @@ def _first_nonzero(*values: Any) -> Decimal:
         if number != 0:
             return number
     return Decimal("0")
+
+
+def _permission_error(action: str, symbol: str, exc: BinanceAPIException) -> GatewayError:
+    """Binance answers -2015 for any refused trading action; say what the operator must check."""
+    return GatewayError(
+        f"Binance refused to {action} on {symbol} [{exc.code}]: {exc.message}. "
+        "Enable Futures trading on the API key and check that its IP whitelist and the testnet/mainnet setting match."
+    )
 
 
 def _state_from_order(order: dict, order_id: Optional[int] = None) -> OrderState:
@@ -211,11 +220,17 @@ class BinanceGateway:
         try:
             await self.client.futures_change_margin_type(symbol=symbol, marginType=margin_type.upper())
         except BinanceAPIException as exc:
-            if exc.code != _NO_NEED_TO_CHANGE_MARGIN_TYPE:
+            if exc.code == _NO_NEED_TO_CHANGE_MARGIN_TYPE:
+                pass  # already the wanted margin type
+            elif exc.code == _PERMISSION_DENIED:
+                raise _permission_error("change the margin type", symbol, exc) from exc
+            else:
                 logger.warning("Margin type change on %s not applied: %s", symbol, exc)
         try:
             response = await self.client.futures_change_leverage(symbol=symbol, leverage=leverage)
         except BinanceAPIException as exc:
+            if exc.code == _PERMISSION_DENIED:
+                raise _permission_error("set leverage", symbol, exc) from exc
             raise GatewayError(f"Could not set leverage on {symbol}: {exc}") from exc
         return int(response.get("leverage", leverage))
 

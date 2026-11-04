@@ -77,13 +77,27 @@ class OneWayReversalTests(TestCase):
         h, source = Harness(), make_source()
         old = open_long(h, source)
 
-        rejected = h.open(short_signal(source, stoploss="1900"))  # stop-loss on the wrong side of a short
+        refused = h.open(short_signal(source, stoploss="1900"))  # stop-loss on the wrong side of a short
 
         old.refresh_from_db()
         self.assertEqual(old.status, "OPEN")
-        self.assertEqual(rejected.status, "REJECTED")
-        self.assertNotEqual(rejected.reason_code, "REVERSAL_IGNORED")
-        self.assertIn("kept", rejected.reason_message)
+        self.assertEqual((refused.status, refused.reason_code), ("CANCELLED", "INVALID_LEVELS"))
+        self.assertNotEqual(refused.reason_code, "REVERSAL_IGNORED")
+        self.assertIn("kept", refused.reason_message)
+
+    def test_a_signal_that_can_no_longer_be_entered_keeps_the_old_trade(self):
+        h, source = Harness(), make_source()
+        old = open_long(h, source)
+        h.run(1985)  # below the short's TP1 (1990): the new signal can no longer be entered
+
+        refused = h.open(short_signal(source))
+
+        old.refresh_from_db()
+        refused.refresh_from_db()
+        self.assertEqual(old.status, "OPEN")
+        self.assertEqual((refused.status, refused.reason_code), ("CANCELLED", "PRICE_HIT_TP1"))
+        self.assertEqual(refused.entry_price, D("2010"))  # the plan is kept for the Cancelled tab
+        self.assertIn("kept", refused.reason_message)
 
     def test_only_this_sources_own_trades_are_closed(self):
         h = Harness()

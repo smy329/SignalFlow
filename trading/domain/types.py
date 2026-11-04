@@ -147,6 +147,7 @@ class PlanResult:
     plan: Optional[TradePlan] = None
     error_code: Optional[str] = None
     error_message: Optional[str] = None
+    void: bool = False  # the plan is complete but must not be placed: TP1 / SL was reached first
 
     @classmethod
     def ok(cls, plan: TradePlan) -> "PlanResult":
@@ -155,3 +156,9 @@ class PlanResult:
     @classmethod
     def fail(cls, error_code: str, error_message: str) -> "PlanResult":
         return cls(success=False, error_code=error_code, error_message=error_message)
+
+    @classmethod
+    def unplaceable(cls, plan: TradePlan, error_code: str, error_message: str) -> "PlanResult":
+        """A complete plan that must not be placed because the market already reached TP1 / the stop-loss:
+        the caller records the trade as cancelled (with the plan's levels) instead of rejected."""
+        return cls(success=False, plan=plan, error_code=error_code, error_message=error_message, void=True)

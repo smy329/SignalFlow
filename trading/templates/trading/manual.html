@@ -77,5 +77,5 @@
 <form id="manual-csrf" class="hidden">{% csrf_token %}</form>
 {{ config|json_script:"manual-config" }}
 <div id="manual-urls" class="hidden" data-analyze="{% url 'manual-analyze' %}" data-preview="{% url 'manual-preview' %}" data-submit="{% url 'manual-submit' %}" data-result="{% url 'manual-result' 0 %}"></div>
-<script src="/static/trading/js/manual.js?v=3"></script>
+<script src="/static/trading/js/manual.js?v=4"></script>
 {% endblock %}

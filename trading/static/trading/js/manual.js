@@ -151,9 +151,10 @@
       resultBox("info").appendChild(el("span", "", "Placing the trade..."));
       return false;
     }
-    if (d.state === "rejected" || d.state === "failed") {
+    if (d.state === "rejected" || d.state === "failed" || d.state === "cancelled") {
       const box = resultBox("bad");
-      box.appendChild(el("div", "font-semibold", (d.state === "failed" ? "Failed" : "Not placed") + " · " + d.mode_label + " · " + d.symbol + " " + d.side));
+      const title = { failed: "Failed", cancelled: "Cancelled", rejected: "Not placed" }[d.state] || "Not placed";
+      box.appendChild(el("div", "font-semibold", title + " · " + d.mode_label + " · " + d.symbol + " " + d.side));
       box.appendChild(el("div", "mt-1", d.message || humanize(d.code)));
       return true;
     }

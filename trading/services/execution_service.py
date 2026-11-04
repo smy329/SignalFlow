@@ -19,9 +19,10 @@ from typing import Collection, Mapping
 from asgiref.sync import sync_to_async
 
 from trading.config import TradingSettings
-from trading.domain.planner import plan_trade
+from trading.domain.planner import PRICE_ALREADY_HIT_SL, PRICE_ALREADY_HIT_TP1, plan_trade
+from trading.domain.rules import PRICE_HIT_SL, PRICE_HIT_TP1
 from trading.domain.strategy import REVERSAL_IGNORE, REVERSAL_ONE_WAY, SourceStrategy
-from trading.domain.types import ALL_ROLE_VALUES, ENTRY_ROLES, OrderSpec, TradePlan, close_side
+from trading.domain.types import ALL_ROLE_VALUES, ENTRY_ROLES, OrderSpec, PlanResult, TradePlan, close_side
 from trading.exchange import base
 from trading.exchange.base import ExchangeGateway, PlacedOrder
 from trading.scopes import TRADE_MODE_BY_SOURCE_MODE
@@ -37,12 +38,27 @@ REVERSAL_IGNORED = "REVERSAL_IGNORED"
 PREPARE_FAILED = "PREPARE_FAILED"
 ORDER_PLACEMENT_FAILED = "ORDER_PLACEMENT_FAILED"
 
+# A plan the planner refused because TP1 / the stop-loss was reached before any entry: no order is
+# placed and the trade is recorded as cancelled (it then shows in the Cancelled tab), not rejected.
+_VOID_REASONS = {PRICE_ALREADY_HIT_TP1: PRICE_HIT_TP1, PRICE_ALREADY_HIT_SL: PRICE_HIT_SL}
+
 
 @dataclass(frozen=True)
 class _Placed:
     row_id: int
     result: PlacedOrder
     spec: OrderSpec
+
+
+@dataclass(frozen=True)
+class _Refusal:
+    """Why a signal will not be traded. `cancelled=True` records it as Cancelled (the dashboard shows
+    it, with `plan` when the planner still built one); otherwise it is recorded as Rejected."""
+
+    code: str
+    message: str
+    plan: "TradePlan | None" = None
+    cancelled: bool = False
 
 
 class ExecutionService:
@@ -122,8 +138,13 @@ class ExecutionService:
         refusal = await self._reverse_opposite(mode, gateway, data)
         trade_id, rejected = await sa(repo.begin_trade)(data.signal_id, mode, signal.symbol, signal.side, testnet=testnet)
         if trade_id is not None and refusal is not None:  # also replaces begin_trade's generic "active trade exists"
-            await sa(repo.reject_trade)(trade_id, *refusal)
-            rejected = refusal[0]
+            if refusal.cancelled:
+                if refusal.plan is not None:
+                    await sa(repo.save_plan)(trade_id, refusal.plan, data.strategy)
+                await sa(repo.cancel_trade)(trade_id, refusal.code, refusal.message)
+            else:
+                await sa(repo.reject_trade)(trade_id, refusal.code, refusal.message)
+            rejected = refusal.code
         if trade_id is None or rejected:
             logger.info("%s %s signal %s skipped (%s)", mode, signal.symbol, data.signal_id, rejected or "already handled")
             return
@@ -142,15 +163,16 @@ class ExecutionService:
 
     async def _reverse_opposite(
         self, mode: str, gateway: ExchangeGateway, data: repo.SignalData
-    ) -> "tuple[str, str] | None":
+    ) -> "_Refusal | None":
         """A signal opposite to a trade this same source already has active on the coin.
 
         ONE_WAY: close that trade fully, then let the new signal trade as usual (close and reverse). The new
-                 signal is planned first: if it could not be traded anyway, the old trade is kept.
+                 signal is planned first: if it could not be traded anyway, the old trade is kept and the new
+                 signal is recorded as Cancelled (visible in the dashboard) instead of closing for nothing.
         IGNORE:  skip the new signal; the old trade carries on.
-        Returns (code, message) when the new signal must be rejected, None to carry on normally. If the old
-        trade cannot be closed the signal carries on too, and the normal guards (one live trade / no exposure
-        per symbol) still decide.
+        Returns why the new signal will not be traded, None to carry on normally. If the old trade cannot be
+        closed the signal carries on too, and the normal guards (one live trade / no exposure per symbol)
+        still decide.
         """
         signal, strategy = data.input, data.strategy
         if strategy.reversal not in (REVERSAL_ONE_WAY, REVERSAL_IGNORE):
@@ -162,7 +184,9 @@ class ExecutionService:
             return None
 
         if strategy.reversal == REVERSAL_IGNORE:
-            return REVERSAL_IGNORED, f"Ignored: this source already has an active opposite trade on {signal.symbol}."
+            return _Refusal(
+                REVERSAL_IGNORED, f"Ignored: this source already has an active opposite trade on {signal.symbol}."
+            )
         if self._monitor is None:
             return None
         closable = [trade_id for trade_id, status in old if status != repo.ST_PLACING]
@@ -179,14 +203,28 @@ class ExecutionService:
             )
         except Exception as exc:  # noqa: BLE001
             logger.exception("Reversal pre-check failed for signal %s", data.signal_id)
-            return PREPARE_FAILED, f"Existing {signal.symbol} trade kept (reversal skipped): {exc}"
+            return _Refusal(PREPARE_FAILED, f"Existing {signal.symbol} trade kept (reversal skipped): {exc}")
         if not result.success:
-            return result.error_code, f"Existing {signal.symbol} trade kept (reversal skipped): {result.error_message}"
+            message = f"Existing {signal.symbol} trade kept (reversal skipped): {result.error_message}"
+            code = _VOID_REASONS.get(result.error_code, result.error_code or "") if result.void else (result.error_code or "")
+            return _Refusal(code, message, result.plan if result.void else None, cancelled=True)
 
         for trade_id in closable:
             if not await self._monitor.reverse_close(trade_id):
                 logger.error("Reversal: old trade %s on %s could not be closed", trade_id, signal.symbol)
         return None
+
+    async def _refuse(self, trade_id: int, result: PlanResult, strategy: SourceStrategy) -> None:
+        """Record a planner refusal. A plan the planner completed but would not place (TP1 / the stop-loss
+        was already reached) keeps its levels on the trade and is cancelled, so the Cancelled tab shows it;
+        anything else is rejected."""
+        if result.void and result.plan is not None:
+            await sa(repo.save_plan)(trade_id, result.plan, strategy)
+            await sa(repo.cancel_trade)(
+                trade_id, _VOID_REASONS.get(result.error_code, result.error_code or ""), result.error_message or ""
+            )
+        else:
+            await sa(repo.reject_trade)(trade_id, result.error_code, result.error_message)
 
     async def _prepare(
         self, gateway: ExchangeGateway, mode: str, trade_id: int, signal, strategy: SourceStrategy
@@ -204,14 +242,14 @@ class ExecutionService:
 
         result = plan_trade(signal, filters, max_leverage=max_leverage, market_price=market, strategy=strategy)
         if not result.success:
-            await sa(repo.reject_trade)(trade_id, result.error_code, result.error_message)
+            await self._refuse(trade_id, result, strategy)
             return None
 
         applied = await gateway.prepare_symbol(signal.symbol, result.plan.leverage, result.plan.margin_type)
         if applied != result.plan.leverage:  # exchange applied a different leverage: size the trade for it
             result = plan_trade(signal, filters, max_leverage=applied, market_price=market, strategy=strategy)
             if not result.success:
-                await sa(repo.reject_trade)(trade_id, result.error_code, result.error_message)
+                await self._refuse(trade_id, result, strategy)
                 return None
         return result.plan
 

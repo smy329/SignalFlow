@@ -9,7 +9,9 @@ so one bad signal can never take the engine down.
 Rules (carried over from the original bot unless noted):
   - an entry is a STOP_MARKET when it lies beyond the market in the trade
     direction (BUY above / SELL below), otherwise a LIMIT GTC
-  - reject if the market already reached TP1 or the stop-loss
+  - a market that already reached TP1 or the stop-loss does not stop the plan:
+    it is returned as unplaceable, so the caller can record the trade as
+    cancelled (visible in the Cancelled tab) without placing any order
   - quantity = margin * leverage / entry, leverage clamped to the symbol max
   - quantity is floored to stepSize (never rounded up) and checked against
     minQty / maxQty / minNotional; too small -> never bumped up
@@ -95,9 +97,9 @@ def plan_trade(
     if not valid:
         return failure
 
-    failure = _check_market(side, market_price, stoploss, targets[0])
-    if failure:
-        return failure
+    unreachable = _check_market(side, market_price, stoploss, targets[0])
+    # A market that already reached TP1 / the stop-loss does not reject the signal: the plan is still
+    # built (its levels are shown on the cancelled trade) and returned as unplaceable at the end.
 
     leverage = int(min(signal.leverage, Decimal(max_leverage)))
     sized, failure = _size_entries(valid, signal.margin, leverage, filters)
@@ -114,21 +116,22 @@ def plan_trade(
     total = sum(q for _, q in sized)
     stop_loss, take_profits = plan_exits(side, total, stoploss, targets, filters, strategy.tp_percents, strategy.default_tp)
 
-    return PlanResult.ok(
-        TradePlan(
-            symbol=signal.symbol,
-            side=side,
-            entry_type=EntryType(specs[0].kind.value),
-            leverage=leverage,
-            margin_type=signal.margin_type.upper(),
-            quantity=total,
-            market_price=market_price,
-            entries=specs,
-            stop_loss=stop_loss,
-            take_profits=take_profits,
-            targets=tuple(targets),
-        )
+    plan = TradePlan(
+        symbol=signal.symbol,
+        side=side,
+        entry_type=EntryType(specs[0].kind.value),
+        leverage=leverage,
+        margin_type=signal.margin_type.upper(),
+        quantity=total,
+        market_price=market_price,
+        entries=specs,
+        stop_loss=stop_loss,
+        take_profits=take_profits,
+        targets=tuple(targets),
     )
+    if unreachable is not None:
+        return PlanResult.unplaceable(plan, unreachable.error_code, unreachable.error_message)
+    return PlanResult.ok(plan)
 
 
 def plan_exits(

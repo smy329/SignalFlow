@@ -100,7 +100,7 @@
   const TABS = {
     positions: { interval: 5000, columns: cols([c.channel, c.side, c.symbol, c.entry, c.margin, c.leverage, c.sl, c.tps, c.livePnl, c.pct, c.opened, closeCol]) },
     pending: { interval: 5000, columns: cols([c.channel, c.side, c.symbol, c.current, c.entry, c.margin, c.leverage, c.sl, c.tps, pendingActionsCol]) },
-    cancelled: { interval: 5000, columns: cols([c.channel, c.side, c.symbol, c.entry, c.margin, c.leverage, c.sl, c.tps, c.reason, c.cancelledAt]) },
+    cancelled: { interval: 5000, columns: cols([c.channel, c.side, c.symbol, c.state, c.entry, c.margin, c.leverage, c.sl, c.tps, c.reason, c.cancelledAt]) },
   };
   const tab = TABS[cfg.tab];
 
@@ -109,4 +109,21 @@
     interval: tab.interval, columns: tab.columns,
   });
   table.start();
+
+  // The bracket count on every tab: the active one is set by its table above; the other two are read
+  // from their own list endpoints, so a trade that moved tabs is visible without switching.
+  const otherCounts = Array.from(document.querySelectorAll("[data-count-url]:not([data-count-active])"));
+  async function refreshCounts() {
+    await Promise.all(otherCounts.map(async (node) => {
+      try {
+        const response = await fetch(node.dataset.countUrl, { headers: { Accept: "application/json" } });
+        const data = await response.json();
+        node.textContent = "(" + (data.rows || []).length + ")";
+      } catch (e) { /* keep the last known number */ }
+    }));
+  }
+  const tickCounts = () => { if (!document.hidden) refreshCounts(); };
+  document.addEventListener("visibilitychange", tickCounts);
+  refreshCounts();
+  setInterval(tickCounts, 5000);
 })();
